@@ -1,0 +1,14 @@
+[default.general]
+chip = "STM32F411CEUx"
+
+[default.rtt]
+enabled = true
+
+[default.gdb]
+enabled = false
+
+[default.reset]
+halt_afterwards = false
+
+[default.options]
+disable_double_buffering = false
