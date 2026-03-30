@@ -23,6 +23,7 @@ use embassy_stm32::{
     simple_pwm::{PwmPin, SimplePwm},
     Channel,
   },
+  usart::{self, Uart},
 };
 use embedded_hal_bus::{i2c::RefCellDevice, spi::ExclusiveDevice};
 use mfrc522::comm::blocking::spi::SpiInterface;
@@ -32,12 +33,11 @@ use panic_probe as _;
 bind_interrupts!(struct Irqs {
   I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
   I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
-  I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
-  I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
   DMA1_STREAM6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
   DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
-  DMA1_STREAM7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
-  DMA1_STREAM2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
+  USART1 => usart::InterruptHandler<peripherals::USART1>;
+  DMA2_STREAM7 => dma::InterruptHandler<peripherals::DMA2_CH7>;  // USART1 TX
+  DMA2_STREAM2 => dma::InterruptHandler<peripherals::DMA2_CH2>;  // USART1 RX
 });
 
 #[embassy_executor::main]
@@ -72,6 +72,20 @@ async fn main(spawner: Spawner) {
   let spi_dev = ExclusiveDevice::new(spi, cs, Delay).unwrap();
   let itf = SpiInterface::new(spi_dev);
 
+  // USART1: PA10=RX, PA9=TX @ 115200 baud — Wi-Fi
+  let mut usart_config = usart::Config::default();
+  usart_config.baudrate = 115200;
+  let uart = Uart::new(
+    p.USART1,
+    p.PA10,     // RX
+    p.PA9,      // TX
+    p.DMA2_CH7, // TX DMA
+    p.DMA2_CH2, // RX DMA
+    Irqs,
+    usart_config,
+  )
+  .unwrap();
+
   let pwm_pin = PwmPin::new(p.PB8, OutputType::PushPull);
   let pwm = SimplePwm::new(
     p.TIM4,
@@ -83,6 +97,8 @@ async fn main(spawner: Spawner) {
     Default::default(),
   );
 
+  let (tx, rx) = uart.split();
+
   let mut firmware = firmware::Firmware::init(
     spawner,
     firmware::OnboardLED::new(p.PC13),
@@ -90,6 +106,7 @@ async fn main(spawner: Spawner) {
     firmware::Oled::new(oled_dev),
     firmware::Buzzer::new(pwm, Channel::Ch3),
     firmware::RFID::new(itf),
+    firmware::Wifi::new(tx, rx),
   )
   .await;
 

@@ -40,7 +40,8 @@ embedded-graphics = "0.8"
 ssd1306 = { path = "extern/ssd1306", features = ["default"] }
 mfrc522 = "0.8"
 ds323x = { version = "0.7", features = ["defmt"] }
-
+esp-at-nal = "0.5"
+atat = "0.24"
 
 [profile.dev]
 opt-level = 1

@@ -189,6 +189,41 @@ impl<I2C: I2c> Oled<I2C> {
     self.flush();
   }
 
+  pub fn show_status(&mut self, msg: &str) {
+    self.clear();
+    Text::with_baseline(
+      msg,
+      Point::new(0, 32),
+      self.heading_style,
+      Baseline::Bottom,
+    )
+      .draw(&mut self.display)
+      .expect("Cannot draw status on OLED");
+    self.flush();
+  }
+
+  /// Two-line status: small label on top, value on bottom
+  pub fn show_status_detail(&mut self, label: &str, value: &str) {
+    self.clear();
+    Text::with_baseline(
+      label,
+      Point::new(0, 10),
+      self.text_style,
+      Baseline::Bottom,
+    )
+      .draw(&mut self.display)
+      .expect("Cannot draw status label");
+    Text::with_baseline(
+      value,
+      Point::new(0, 32),
+      self.heading_style,
+      Baseline::Bottom,
+    )
+      .draw(&mut self.display)
+      .expect("Cannot draw status value");
+    self.flush();
+  }
+
   pub fn draw(&mut self) {
     self.clear();
 
