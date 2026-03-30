@@ -1,2 +1,6 @@
 /target
 .idea
+server/.env
+server/*.db
+server/.venv
+server/taptime/__pycache__

@@ -2,6 +2,7 @@
 name = "taptime"
 version = "0.1.0"
 edition = "2021"
+exclude = ["bot"]
 
 [features]
 clock_set = []

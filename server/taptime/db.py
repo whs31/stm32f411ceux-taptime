@@ -1,0 +1,97 @@
+from datetime import date, datetime
+
+import aiosqlite
+
+
+async def init_db(db: aiosqlite.Connection) -> None:
+    await db.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            telegram_id INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL,
+            uid         TEXT NOT NULL UNIQUE
+        );
+        CREATE TABLE IF NOT EXISTS records (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            uid         TEXT NOT NULL,
+            date        TEXT NOT NULL,
+            check_in    TEXT,
+            check_out   TEXT,
+            UNIQUE(uid, date)
+        );
+    """)
+    await db.commit()
+
+
+async def get_user_by_telegram(db: aiosqlite.Connection, telegram_id: int):
+    async with db.execute(
+        "SELECT telegram_id, name, uid FROM users WHERE telegram_id = ?", (telegram_id,)
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def get_user_by_uid(db: aiosqlite.Connection, uid: str):
+    async with db.execute(
+        "SELECT telegram_id, name, uid FROM users WHERE uid = ?", (uid,)
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def register_user(db: aiosqlite.Connection, telegram_id: int, name: str, uid: str) -> None:
+    await db.execute(
+        "INSERT INTO users (telegram_id, name, uid) VALUES (?, ?, ?)",
+        (telegram_id, name, uid),
+    )
+    await db.commit()
+
+
+async def get_records(db: aiosqlite.Connection, uid: str, since: date):
+    async with db.execute(
+        "SELECT date, check_in, check_out FROM records "
+        "WHERE uid = ? AND date >= ? ORDER BY date DESC",
+        (uid, since.isoformat()),
+    ) as cur:
+        return await cur.fetchall()
+
+
+async def upsert_check_in(db: aiosqlite.Connection, uid: str, dt: datetime) -> None:
+    await db.execute(
+        """INSERT INTO records (uid, date, check_in) VALUES (?, ?, ?)
+           ON CONFLICT(uid, date) DO UPDATE SET check_in = excluded.check_in""",
+        (uid, dt.date().isoformat(), dt.strftime("%H:%M:%S")),
+    )
+    await db.commit()
+
+
+async def upsert_check_out(db: aiosqlite.Connection, uid: str, dt: datetime) -> str | None:
+    d = dt.date().isoformat()
+    await db.execute(
+        """INSERT INTO records (uid, date, check_out) VALUES (?, ?, ?)
+           ON CONFLICT(uid, date) DO UPDATE SET check_out = excluded.check_out""",
+        (uid, d, dt.strftime("%H:%M:%S")),
+    )
+    await db.commit()
+    async with db.execute(
+        "SELECT check_in FROM records WHERE uid = ? AND date = ?", (uid, d)
+    ) as cur:
+        row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def set_record(
+    db: aiosqlite.Connection, uid: str, d: str, check_in: str, check_out: str
+) -> None:
+    await db.execute(
+        """INSERT INTO records (uid, date, check_in, check_out) VALUES (?, ?, ?, ?)
+           ON CONFLICT(uid, date) DO UPDATE
+               SET check_in = excluded.check_in, check_out = excluded.check_out""",
+        (uid, d, check_in, check_out),
+    )
+    await db.commit()
+
+
+async def today_record(db: aiosqlite.Connection, uid: str):
+    async with db.execute(
+        "SELECT date, check_in, check_out FROM records WHERE uid = ? AND date = ?",
+        (uid, date.today().isoformat()),
+    ) as cur:
+        return await cur.fetchone()

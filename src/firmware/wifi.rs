@@ -49,10 +49,12 @@ impl Wifi {
     // Join AP
     let join_cmd = alloc::format!(
       "AT+CWJAP=\"{}\",\"{}\"\r\n",
-      ssid.replace('\\', "\\\\")
+      ssid
+        .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace(',', "\\,"),
-      password.replace('\\', "\\\\")
+      password
+        .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace(',', "\\,"),
     );
@@ -62,16 +64,19 @@ impl Wifi {
     // CWJAP can take up to 15s and sends multiple lines — drain until OK or FAIL
     let deadline = embassy_time::Instant::now() + Duration::from_millis(15000);
     loop {
-      match with_timeout(Duration::from_millis(3000), self.rx.read_until_idle(&mut buf)).await {
+      match with_timeout(
+        Duration::from_millis(3000),
+        self.rx.read_until_idle(&mut buf),
+      )
+      .await
+      {
         Ok(Ok(n)) => {
           let got = &buf[..n];
           defmt::info!("ESP << {:a}", got);
           if got.windows(2).any(|w| w == b"OK") {
             break;
           }
-          if got.windows(4).any(|w| w == b"FAIL")
-            || got.windows(16).any(|w| w == b"ERROR")
-          {
+          if got.windows(4).any(|w| w == b"FAIL") || got.windows(16).any(|w| w == b"ERROR") {
             defmt::error!("CWJAP rejected: {:a}", got);
             return false;
           }
@@ -86,13 +91,15 @@ impl Wifi {
       }
     }
 
+    Timer::after(Duration::from_millis(500)).await;
     // Confirm IP assigned
-    if !self.cmd(b"AT+CIFSR\r\n", b"STAIP", 3000).await {
+    if !self.cmd(b"AT+CIFSR\r\n", b"STAIP", 5000).await {
       defmt::error!("No IP assigned");
       return false;
     }
 
     defmt::info!("WiFi connected");
+    self.cmd(b"AT+GMR\r\n", b"OK", 2000).await;
     true
   }
 }

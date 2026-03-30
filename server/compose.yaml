@@ -1,0 +1,9 @@
+services:
+  taptime:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/data
+    ports:
+      - "${MCU_PORT:-8080}:8080"
+    restart: unless-stopped
