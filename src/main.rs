@@ -3,7 +3,7 @@
 
 use core::cell::RefCell;
 
-use chrono::prelude::*;
+use embassy_time::Delay;
 mod firmware;
 mod heap;
 
@@ -14,7 +14,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{
   bind_interrupts, dma,
-  gpio::OutputType,
+  gpio::{Level, Output, OutputType, Speed},
   i2c::{self, I2c},
   peripherals,
   spi::{Config as SpiConfig, Spi},
@@ -25,6 +25,7 @@ use embassy_stm32::{
   },
 };
 use embedded_hal_bus::{i2c::RefCellDevice, spi::ExclusiveDevice};
+use mfrc522::comm::blocking::spi::SpiInterface;
 #[allow(unused_imports)]
 use panic_probe as _;
 
@@ -64,13 +65,12 @@ async fn main(spawner: Spawner) {
   let oled_dev = RefCellDevice::new(&i2c1_bus);
 
   // SPI1: PA5=SCK, PA7=MOSI, PA6=MISO @ 1 MHz — MFRC522
-  // let mut spi_config = SpiConfig::default();
-  // spi_config.frequency = Hertz(1_000_000);
-  // let spi = Spi::new_blocking(p.SPI1, p.PA5, p.PA7, p.PA6, spi_config);
-  // let cs = Output::new(p.PB12, Level::High, Speed::VeryHigh);
-  // let _spi_dev = ExclusiveDevice::new(spi, cs, Delay);
-  // let itf = SpiInterface::new(_spi_dev);
-  // let mut mfrc522 = Mfrc522::new(itf).init().expect("could not create MFRC522");
+  let mut spi_config = SpiConfig::default();
+  spi_config.frequency = Hertz(1_000_000);
+  let spi = Spi::new_blocking(p.SPI1, p.PA5, p.PA7, p.PA6, spi_config);
+  let cs = Output::new(p.PB12, Level::High, Speed::VeryHigh);
+  let spi_dev = ExclusiveDevice::new(spi, cs, Delay).unwrap();
+  let itf = SpiInterface::new(spi_dev);
 
   let pwm_pin = PwmPin::new(p.PB8, OutputType::PushPull);
   let pwm = SimplePwm::new(
@@ -89,6 +89,7 @@ async fn main(spawner: Spawner) {
     firmware::RTC::new(rtc_dev),
     firmware::Oled::new(oled_dev),
     firmware::Buzzer::new(pwm, Channel::Ch3),
+    firmware::RFID::new(itf),
   )
   .await;
 

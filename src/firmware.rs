@@ -1,31 +1,34 @@
 mod buzzer;
 mod oled;
 mod onboard_led;
+mod rfid;
 mod rtc;
 
 use chrono::prelude::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_time::{Duration, Timer};
-use embedded_hal::i2c::I2c;
+use embedded_hal::{i2c::I2c, spi::SpiDevice};
 
-pub use self::{buzzer::Buzzer, oled::Oled, onboard_led::OnboardLED, rtc::RTC};
+pub use self::{buzzer::Buzzer, oled::Oled, onboard_led::OnboardLED, rfid::RFID, rtc::RTC};
 
-pub struct Firmware<I2C> {
+pub struct Firmware<I2C, SPI: SpiDevice> {
   pub spawner: Spawner,
   pub onboard_led: OnboardLED,
   pub rtc: RTC<I2C>,
   pub oled: Oled<I2C>,
   pub buzzer: Buzzer<'static, embassy_stm32::peripherals::TIM4>,
+  pub rfid: RFID<SPI>,
 }
 
-impl<I2C: I2c> Firmware<I2C> {
+impl<I2C: I2c, SPI: SpiDevice> Firmware<I2C, SPI> {
   pub async fn init(
     spawner: Spawner,
     onboard_led: OnboardLED,
     rtc: RTC<I2C>,
     oled: Oled<I2C>,
     buzzer: Buzzer<'static, embassy_stm32::peripherals::TIM4>,
+    rfid: RFID<SPI>,
   ) -> Self {
     defmt::info!("Initializing firmware");
     Timer::after(Duration::from_millis(100)).await;
@@ -35,6 +38,7 @@ impl<I2C: I2c> Firmware<I2C> {
       rtc,
       oled,
       buzzer,
+      rfid,
     };
     defmt::info!("Firmware initialized");
     firmware
