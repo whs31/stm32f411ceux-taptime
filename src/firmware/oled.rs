@@ -1,5 +1,5 @@
-use embedded_hal::i2c::I2c;
 use chrono::prelude::*;
+use embassy_time::{Duration, Timer};
 use embedded_graphics::{
   mono_font::{
     iso_8859_1::{FONT_10X20, FONT_5X8},
@@ -9,10 +9,11 @@ use embedded_graphics::{
   prelude::*,
   text::{Baseline, Text},
 };
+use embedded_hal::i2c::I2c;
 use ssd1306::{mode::BufferedGraphicsMode, prelude::*, I2CDisplayInterface, Ssd1306};
 
 type OledDisplay<I2C> =
-Ssd1306<I2CInterface<I2C>, DisplaySize128x32, BufferedGraphicsMode<DisplaySize128x32>>;
+  Ssd1306<I2CInterface<I2C>, DisplaySize128x32, BufferedGraphicsMode<DisplaySize128x32>>;
 
 /// OLED display
 ///
@@ -40,6 +41,8 @@ impl<I2C: I2c> Oled<I2C> {
       .text_color(BinaryColor::On)
       .build();
 
+    defmt::info!("Initializing 128x32 OLED");
+
     Self {
       display,
       text_style,
@@ -66,6 +69,12 @@ impl<I2C: I2c> Oled<I2C> {
     self.display.flush().expect("Cannot flush OLED");
   }
 
+  #[inline]
+  pub fn clear_and_flush(&mut self) {
+    self.clear();
+    self.flush();
+  }
+
   pub fn show_datetime(&mut self, datetime: NaiveDateTime) {
     self.clear();
 
@@ -88,8 +97,8 @@ impl<I2C: I2c> Oled<I2C> {
       self.text_style,
       Baseline::Bottom,
     )
-      .draw(&mut self.display)
-      .expect("Cannot draw date on OLED");
+    .draw(&mut self.display)
+    .expect("Cannot draw date on OLED");
 
     Text::with_baseline(
       time.as_str(),
@@ -97,12 +106,40 @@ impl<I2C: I2c> Oled<I2C> {
       self.heading_style,
       Baseline::Bottom,
     )
-      .draw(&mut self.display)
-      .expect("Cannot draw time on OLED");
+    .draw(&mut self.display)
+    .expect("Cannot draw time on OLED");
 
     self.flush();
   }
 
+  pub async fn show_datetime_for(&mut self, datetime: NaiveDateTime, duration: Duration) {
+    self.show_datetime(datetime);
+    Timer::after(duration).await;
+    self.clear_and_flush();
+  }
+
+  pub fn greet(&mut self) {
+    self.clear();
+
+    Text::with_baseline(
+      "Greetings!",
+      Point::new(13, 28),
+      self.heading_style,
+      Baseline::Bottom,
+    )
+    .draw(&mut self.display)
+    .expect("Cannot draw greeting on OLED");
+
+    self.flush();
+  }
+
+  pub async fn greet_for(&mut self, duration: Duration) {
+    self.greet();
+    Timer::after(duration).await;
+    self.clear_and_flush();
+  }
+
+  #[allow(unused)]
   pub fn wave_goodbye(&mut self) {
     self.clear();
 
@@ -112,8 +149,8 @@ impl<I2C: I2c> Oled<I2C> {
       self.heading_style,
       Baseline::Bottom,
     )
-      .draw(&mut self.display)
-      .expect("Cannot draw goodbye on OLED");
+    .draw(&mut self.display)
+    .expect("Cannot draw goodbye on OLED");
 
     self.flush();
   }
@@ -128,8 +165,8 @@ impl<I2C: I2c> Oled<I2C> {
       self.heading_style,
       Baseline::Bottom,
     )
-      .draw(&mut self.display)
-      .expect("Cannot draw time on OLED");
+    .draw(&mut self.display)
+    .expect("Cannot draw time on OLED");
 
     self.flush();
   }
