@@ -18,7 +18,7 @@ embedded-alloc = "0.7"
 embassy-sync = { version = "0.8", features = ["defmt"] }
 embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-embedded-hal = { version = "0.6"}
+embassy-embedded-hal = { version = "0.6" }
 embassy-futures = "0.1"
 embassy-stm32 = { version = "0.6", features = [
     "defmt",
@@ -37,11 +37,10 @@ chrono = { version = "0.4", default-features = false, features = [] }
 build-time = "0.1"
 
 embedded-graphics = "0.8"
+embedded-iconoir = { version = "0.2", features = ["12px", "32px"] }
 ssd1306 = { path = "extern/ssd1306", features = ["default"] }
 mfrc522 = "0.8"
 ds323x = { version = "0.7", features = ["defmt"] }
-esp-at-nal = "0.5"
-atat = "0.24"
 
 [profile.dev]
 opt-level = 1

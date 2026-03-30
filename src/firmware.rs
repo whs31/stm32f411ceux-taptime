@@ -7,14 +7,17 @@ mod wifi;
 
 use chrono::prelude::*;
 use embassy_executor::Spawner;
-use embassy_futures::join::join;
+use embassy_futures::{
+  join::join,
+  select::{select, Either},
+};
 use embassy_stm32::time::Hertz;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal::{i2c::I2c, spi::SpiDevice};
 
 pub use self::{
   buzzer::Buzzer,
-  oled::Oled,
+  oled::{Oled, WifiStatus},
   onboard_led::OnboardLED,
   rfid::{Uid, RFID},
   rtc::RTC,
@@ -73,21 +76,35 @@ impl<I2C: I2c, SPI: SpiDevice> Firmware<I2C, SPI> {
     self.oled.greet_for(Duration::from_millis(1000)).await;
     self
       .oled
-      .show_datetime_for(*self.datetime(), Duration::from_millis(1000))
+      .show_datetime_for(*self.datetime(), Duration::from_millis(2000))
       .await;
 
-    self.oled.show_status("WiFi");
-    match self.wifi.connect(WIFI_SSID, WIFI_PASSWORD).await {
-      true => {
-        defmt::info!("WiFi connected");
-        self.oled.show_status("WiFi OK!");
-        Timer::after(Duration::from_millis(1500)).await;
+    self.oled.set_wifi_status(WifiStatus::Connecting);
+    let connected = {
+      let mut connect_fut = core::pin::pin!(self.wifi.connect(WIFI_SSID, WIFI_PASSWORD));
+      let mut ticker = Ticker::every(Duration::from_millis(100));
+      let mut frame = 0u8;
+      loop {
+        match select(connect_fut.as_mut(), ticker.next()).await {
+          Either::First(result) => break result,
+          Either::Second(_) => {
+            self.oled.draw_wifi_connecting(frame);
+            frame = frame.wrapping_add(1);
+          }
+        }
       }
-      false => {
-        defmt::warn!("WiFi failed");
-        self.oled.show_status("WiFi FAIL");
-        Timer::after(Duration::from_millis(2000)).await;
-      }
+    };
+
+    if connected {
+      defmt::info!("WiFi connected");
+      self.oled.set_wifi_status(WifiStatus::Connected);
+      self.oled.show_status_detail("WiFi", "OK", true);
+      Timer::after(Duration::from_millis(1000)).await;
+    } else {
+      defmt::warn!("WiFi failed");
+      self.oled.set_wifi_status(WifiStatus::Failed);
+      self.oled.show_status_detail("WiFi", "FAIL", false);
+      Timer::after(Duration::from_millis(2000)).await;
     }
     self.oled.clear_and_flush();
 
