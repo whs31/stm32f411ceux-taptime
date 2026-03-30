@@ -1,3 +1,4 @@
+mod buzzer;
 mod oled;
 mod onboard_led;
 mod rtc;
@@ -8,13 +9,14 @@ use embassy_futures::join::join;
 use embassy_time::{Duration, Timer};
 use embedded_hal::i2c::I2c;
 
-pub use self::{oled::Oled, onboard_led::OnboardLED, rtc::RTC};
+pub use self::{buzzer::Buzzer, oled::Oled, onboard_led::OnboardLED, rtc::RTC};
 
 pub struct Firmware<I2C> {
   pub spawner: Spawner,
   pub onboard_led: OnboardLED,
   pub rtc: RTC<I2C>,
   pub oled: Oled<I2C>,
+  pub buzzer: Buzzer<'static, embassy_stm32::peripherals::TIM4>,
 }
 
 impl<I2C: I2c> Firmware<I2C> {
@@ -23,6 +25,7 @@ impl<I2C: I2c> Firmware<I2C> {
     onboard_led: OnboardLED,
     rtc: RTC<I2C>,
     oled: Oled<I2C>,
+    buzzer: Buzzer<'static, embassy_stm32::peripherals::TIM4>,
   ) -> Self {
     defmt::info!("Initializing firmware");
     Timer::after(Duration::from_millis(100)).await;
@@ -31,6 +34,7 @@ impl<I2C: I2c> Firmware<I2C> {
       onboard_led,
       rtc,
       oled,
+      buzzer,
     };
     defmt::info!("Firmware initialized");
     firmware
@@ -45,6 +49,7 @@ impl<I2C: I2c> Firmware<I2C> {
     self.rtc.update();
 
     self.onboard_led.blink(Duration::from_millis(100)).await;
+    self.buzzer.boot_chime().await;
 
     self.oled.greet_for(Duration::from_millis(3000)).await;
     self

@@ -14,10 +14,15 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{
   bind_interrupts, dma,
+  gpio::OutputType,
   i2c::{self, I2c},
   peripherals,
   spi::{Config as SpiConfig, Spi},
   time::Hertz,
+  timer::{
+    simple_pwm::{PwmPin, SimplePwm},
+    Channel,
+  },
 };
 use embedded_hal_bus::{i2c::RefCellDevice, spi::ExclusiveDevice};
 #[allow(unused_imports)]
@@ -67,11 +72,23 @@ async fn main(spawner: Spawner) {
   // let itf = SpiInterface::new(_spi_dev);
   // let mut mfrc522 = Mfrc522::new(itf).init().expect("could not create MFRC522");
 
+  let pwm_pin = PwmPin::new(p.PB8, OutputType::PushPull);
+  let pwm = SimplePwm::new(
+    p.TIM4,
+    None,
+    None,
+    Some(pwm_pin),
+    None,
+    Hertz(1000),
+    Default::default(),
+  );
+
   let mut firmware = firmware::Firmware::init(
     spawner,
     firmware::OnboardLED::new(p.PC13),
     firmware::RTC::new(rtc_dev),
     firmware::Oled::new(oled_dev),
+    firmware::Buzzer::new(pwm, Channel::Ch3),
   )
   .await;
 
