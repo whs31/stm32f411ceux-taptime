@@ -7,10 +7,11 @@ mod rtc;
 use chrono::prelude::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_stm32::time::Hertz;
 use embassy_time::{Duration, Timer};
 use embedded_hal::{i2c::I2c, spi::SpiDevice};
 
-pub use self::{buzzer::Buzzer, oled::Oled, onboard_led::OnboardLED, rfid::RFID, rtc::RTC};
+pub use self::{buzzer::Buzzer, oled::Oled, onboard_led::OnboardLED, rfid::{RFID, Uid}, rtc::RTC};
 
 pub struct Firmware<I2C, SPI: SpiDevice> {
   pub spawner: Spawner,
@@ -55,25 +56,45 @@ impl<I2C: I2c, SPI: SpiDevice> Firmware<I2C, SPI> {
     self.onboard_led.blink(Duration::from_millis(100)).await;
     self.buzzer.boot_chime().await;
 
-    self.oled.greet_for(Duration::from_millis(3000)).await;
+    self.oled.greet_for(Duration::from_millis(1000)).await;
     self
       .oled
-      .show_datetime_for(*self.datetime(), Duration::from_millis(3000))
+      .show_datetime_for(*self.datetime(), Duration::from_millis(1000))
       .await;
 
     loop {
       let led_fut = self.onboard_led.blink(Duration::from_millis(100));
-      let tick_fut = Self::tick(&mut self.rtc, &mut self.oled);
+      let tick_fut = Self::tick(&mut self.rtc, &mut self.oled, &mut self.rfid, &mut self.buzzer);
       join(led_fut, tick_fut).await;
     }
   }
 
-  async fn tick(rtc: &mut RTC<I2C>, oled: &mut Oled<I2C>) {
+  async fn tick(
+    rtc: &mut RTC<I2C>,
+    oled: &mut Oled<I2C>,
+    rfid: &mut RFID<SPI>,
+    buzzer: &mut Buzzer<'static, embassy_stm32::peripherals::TIM4>,
+  ) {
+    // Poll RFID rapidly for up to 900ms before doing a clock update
+    let deadline = embassy_time::Instant::now() + Duration::from_millis(900);
+    loop {
+      if let Some(uid) = rfid.poll() {
+        defmt::info!("RFID tap: {:02X}", uid.as_slice());
+        buzzer.beep(Hertz(1760), Duration::from_millis(80)).await;
+        oled.show_uid(&uid);
+        Timer::after(Duration::from_millis(3000)).await;
+        break; 
+      }
+      Timer::after(Duration::from_millis(50)).await;
+      if embassy_time::Instant::now() >= deadline {
+        break;
+      }
+    }
+
     rtc.update();
     let dt = rtc.datetime();
     oled.set_time(dt.hour() as u8, dt.minute() as u8);
     oled.draw();
-    Timer::after(Duration::from_millis(900)).await;
   }
 
   #[cfg(feature = "clock_set")]

@@ -66,7 +66,7 @@ async fn main(spawner: Spawner) {
 
   // SPI1: PA5=SCK, PA7=MOSI, PA6=MISO @ 1 MHz — MFRC522
   let mut spi_config = SpiConfig::default();
-  spi_config.frequency = Hertz(1_000_000);
+  spi_config.frequency = Hertz(5_000_000);
   let spi = Spi::new_blocking(p.SPI1, p.PA5, p.PA7, p.PA6, spi_config);
   let cs = Output::new(p.PB12, Level::High, Speed::VeryHigh);
   let spi_dev = ExclusiveDevice::new(spi, cs, Delay).unwrap();

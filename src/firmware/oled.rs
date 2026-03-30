@@ -155,6 +155,40 @@ impl<I2C: I2c> Oled<I2C> {
     self.flush();
   }
 
+  pub fn show_uid(&mut self, uid: &super::Uid) {
+    self.clear();
+
+    // Top line: label
+    Text::with_baseline(
+      "RFID TAG",
+      Point::new(24, 8),
+      self.text_style,
+      Baseline::Bottom,
+    )
+    .draw(&mut self.display)
+    .expect("Cannot draw UID label");
+
+    // Bottom line: hex UID e.g. "A1 B2 C3 D4"
+    let mut buf = alloc::string::String::new();
+    for (i, byte) in uid.as_slice().iter().enumerate() {
+      if i > 0 {
+        buf.push(' ');
+      }
+      let _ = core::fmt::write(&mut buf, format_args!("{:02X}", byte));
+    }
+
+    Text::with_baseline(
+      buf.as_str(),
+      Point::new(0, 17),
+      self.text_style,
+      Baseline::Bottom,
+    )
+    .draw(&mut self.display)
+    .expect("Cannot draw UID on OLED");
+
+    self.flush();
+  }
+
   pub fn draw(&mut self) {
     self.clear();
 
