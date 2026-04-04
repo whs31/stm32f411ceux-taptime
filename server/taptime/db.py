@@ -95,3 +95,20 @@ async def today_record(db: aiosqlite.Connection, uid: str):
         (uid, date.today().isoformat()),
     ) as cur:
         return await cur.fetchone()
+
+
+async def reopen_checkin(db: aiosqlite.Connection, uid: str) -> None:
+    """Clear check_out so the user is marked checked-in again (preserves original check_in)."""
+    await db.execute(
+        "UPDATE records SET check_out = NULL WHERE uid = ? AND date = ?",
+        (uid, date.today().isoformat()),
+    )
+    await db.commit()
+
+
+async def delete_record(db: aiosqlite.Connection, uid: str, d: str) -> bool:
+    cursor = await db.execute(
+        "DELETE FROM records WHERE uid = ? AND date = ?", (uid, d)
+    )
+    await db.commit()
+    return cursor.rowcount > 0

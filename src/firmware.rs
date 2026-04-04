@@ -27,6 +27,27 @@ pub use self::{
 const WIFI_SSID: &str = "McDonald's Wi-Fi Free";
 const WIFI_PASSWORD: &str = "013214415";
 
+const SERVER_HOST: &str = "192.168.0.162";
+const SERVER_PORT: u16 = 8080;
+const SERVER_SECRET: &str = "";
+
+fn uid_to_hex(uid: &Uid) -> alloc::string::String {
+  let mut s = alloc::string::String::new();
+  for byte in uid.as_slice() {
+    let _ = core::fmt::write(&mut s, format_args!("{:02X}", byte));
+  }
+  s
+}
+
+/// Extract a string value from a flat JSON object: `{"key":"value",...}`.
+fn json_field<'a>(json: &'a str, key: &str) -> Option<&'a str> {
+  let key_pattern = alloc::format!("\"{}\":", key);
+  let after_colon = &json[json.find(key_pattern.as_str())? + key_pattern.len()..];
+  let after_space = after_colon.trim_start_matches(' ');
+  let after_quote = after_space.strip_prefix('"')?;
+  Some(&after_quote[..after_quote.find('"')?])
+}
+
 pub struct Firmware<I2C, SPI: SpiDevice> {
   pub _spawner: Spawner,
   pub onboard_led: OnboardLED,
@@ -115,6 +136,7 @@ impl<I2C: I2c, SPI: SpiDevice> Firmware<I2C, SPI> {
         &mut self.oled,
         &mut self.rfid,
         &mut self.buzzer,
+        &mut self.wifi,
       );
       join(led_fut, tick_fut).await;
     }
@@ -125,6 +147,7 @@ impl<I2C: I2c, SPI: SpiDevice> Firmware<I2C, SPI> {
     oled: &mut Oled<I2C>,
     rfid: &mut RFID<SPI>,
     buzzer: &mut Buzzer<'static, embassy_stm32::peripherals::TIM4>,
+    wifi: &mut Wifi,
   ) {
     // Poll RFID rapidly for up to 900ms before doing a clock update
     let deadline = embassy_time::Instant::now() + Duration::from_millis(900);
@@ -132,7 +155,36 @@ impl<I2C: I2c, SPI: SpiDevice> Firmware<I2C, SPI> {
       if let Some(uid) = rfid.poll() {
         defmt::info!("RFID tap: {:02X}", uid.as_slice());
         buzzer.beep(Hertz(1760), Duration::from_millis(80)).await;
-        oled.show_uid(&uid);
+
+        let uid_hex = uid_to_hex(&uid);
+        let dt = rtc.datetime();
+        let body = alloc::format!(
+          "{{\"uid\":\"{}\",\"time\":\"{:02}:{:02}:{:02}\"}}",
+          uid_hex,
+          dt.hour(),
+          dt.minute(),
+          dt.second()
+        );
+
+        match wifi
+          .http_post(SERVER_HOST, SERVER_PORT, "/tap", &body, SERVER_SECRET)
+          .await
+        {
+          Some(resp) => match json_field(&resp, "status") {
+            Some("check_in") => {
+              let name = json_field(&resp, "name").unwrap_or("?");
+              oled.show_tap_checkin(name);
+            }
+            Some("check_out") => {
+              let name = json_field(&resp, "name").unwrap_or("?");
+              let dur = json_field(&resp, "duration").unwrap_or("?");
+              oled.show_tap_checkout(name, dur);
+            }
+            _ => oled.show_tap_unknown(&uid_hex),
+          },
+          None => oled.show_status_detail("Server", "ERR", false),
+        }
+
         Timer::after(Duration::from_millis(3000)).await;
         break;
       }

@@ -177,6 +177,42 @@ impl<I2C: I2c> Oled<I2C> {
     self.flush();
   }
 
+  /// Check-in response: "Hello," / <name>
+  pub fn show_tap_checkin(&mut self, name: &str) {
+    self.clear();
+    Text::with_baseline("Hello,", Point::new(0, 10), self.text_style, Baseline::Bottom)
+      .draw(&mut self.display)
+      .expect("Cannot draw check-in label");
+    Text::with_baseline(name, Point::new(0, 32), self.heading_style, Baseline::Bottom)
+      .draw(&mut self.display)
+      .expect("Cannot draw check-in name");
+    self.flush();
+  }
+
+  /// Check-out response: <name> / <duration>
+  pub fn show_tap_checkout(&mut self, name: &str, duration: &str) {
+    self.clear();
+    Text::with_baseline(name, Point::new(0, 10), self.text_style, Baseline::Bottom)
+      .draw(&mut self.display)
+      .expect("Cannot draw check-out name");
+    Text::with_baseline(duration, Point::new(0, 32), self.heading_style, Baseline::Bottom)
+      .draw(&mut self.display)
+      .expect("Cannot draw check-out duration");
+    self.flush();
+  }
+
+  /// Unknown UID response: hex UID / "Unknown!"
+  pub fn show_tap_unknown(&mut self, uid_hex: &str) {
+    self.clear();
+    Text::with_baseline(uid_hex, Point::new(0, 10), self.text_style, Baseline::Bottom)
+      .draw(&mut self.display)
+      .expect("Cannot draw unknown UID");
+    Text::with_baseline("Unknown!", Point::new(0, 32), self.heading_style, Baseline::Bottom)
+      .draw(&mut self.display)
+      .expect("Cannot draw unknown label");
+    self.flush();
+  }
+
   pub fn show_uid(&mut self, uid: &super::Uid) {
     self.clear();
 

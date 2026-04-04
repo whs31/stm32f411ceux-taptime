@@ -5,6 +5,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from .db import (
+    delete_record,
     get_records,
     get_user_by_telegram,
     get_user_by_uid,
@@ -119,8 +120,35 @@ async def cmd_settime(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"Set {d}: in={ci} out={co} ({format_duration(ci, co)})")
 
 
+async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    db: aiosqlite.Connection = ctx.bot_data["db"]
+    user = await get_user_by_telegram(db, update.effective_user.id)
+    if not user:
+        await update.message.reply_text("You are not registered. Use /register <NAME> <UID>.")
+        return
+
+    _, _name, uid = user
+    args = ctx.args or []
+    if not args:
+        await update.message.reply_text("Usage: /reset <DATE>\nExample: /reset 2024-01-15")
+        return
+
+    d = args[0]
+    try:
+        datetime.strptime(d, "%Y-%m-%d")
+    except ValueError:
+        await update.message.reply_text("Invalid date format. Use YYYY-MM-DD")
+        return
+
+    if await delete_record(db, uid, d):
+        await update.message.reply_text(f"Record for {d} has been reset.")
+    else:
+        await update.message.reply_text(f"No record found for {d}.")
+
+
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("register", cmd_register))
     app.add_handler(CommandHandler("me", cmd_me))
     app.add_handler(CommandHandler("time", cmd_time))
     app.add_handler(CommandHandler("settime", cmd_settime))
+    app.add_handler(CommandHandler("reset", cmd_reset))

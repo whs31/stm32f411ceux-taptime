@@ -5,7 +5,7 @@ import aiosqlite
 from aiohttp import web
 
 from .bot import format_duration
-from .db import get_user_by_uid, today_record, upsert_check_in, upsert_check_out
+from .db import get_user_by_uid, reopen_checkin, today_record, upsert_check_in, upsert_check_out
 
 log = logging.getLogger(__name__)
 
@@ -47,14 +47,21 @@ async def handle_tap(request: web.Request) -> web.Response:
     record = await today_record(db, uid)
 
     if record and record[1] and not record[2]:
+        # Currently checked in → check out (update check_out; check_in stays as the first one)
         ci_str = await upsert_check_out(db, uid, dt)
         co_str = dt.strftime("%H:%M:%S")
         dur = format_duration(ci_str, co_str) if ci_str else "—"
-        log.info("Check-out: %s at %s (duration %s)", name, dt, dur)
+        log.info("Check-out: %s at %s (total since first check-in: %s)", name, dt, dur)
         return web.json_response(
             {"status": "check_out", "name": name, "duration": dur, "check_in": ci_str, "check_out": co_str}
         )
+    elif record and record[1] and record[2]:
+        # Was checked out earlier today → re-check-in (preserve original check_in)
+        await reopen_checkin(db, uid)
+        log.info("Re-check-in: %s at %s", name, dt)
+        return web.json_response({"status": "check_in", "name": name, "check_in": record[1]})
     else:
+        # No record yet → first check-in of the day
         await upsert_check_in(db, uid, dt)
         log.info("Check-in: %s at %s", name, dt)
         return web.json_response({"status": "check_in", "name": name, "check_in": dt.strftime("%H:%M:%S")})
