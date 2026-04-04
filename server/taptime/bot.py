@@ -13,6 +13,7 @@ from .db import (
     get_user_by_uid,
     get_user_required_seconds,
     register_user,
+    remove_day_off,
     set_record,
     set_remote_workdays,
     set_required_hours_override,
@@ -289,7 +290,9 @@ async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     d = d_obj.isoformat()
-    if await delete_record(db, uid, d):
+    record_deleted = await delete_record(db, uid, d)
+    await remove_day_off(db, uid, d)
+    if record_deleted:
         await update.message.reply_text(f"Record for {d} has been reset.")
     else:
         await update.message.reply_text(f"No record found for {d}.")

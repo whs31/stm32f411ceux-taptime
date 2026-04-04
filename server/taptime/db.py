@@ -144,6 +144,11 @@ async def add_day_off(db: aiosqlite.Connection, uid: str, d: str) -> None:
     await db.commit()
 
 
+async def remove_day_off(db: aiosqlite.Connection, uid: str, d: str) -> None:
+    await db.execute(_q("day_offs/delete.sql"), (uid, d))
+    await db.commit()
+
+
 async def get_day_offs_for_month(
     db: aiosqlite.Connection, uid: str, year: int, month: int
 ) -> list[str]:
