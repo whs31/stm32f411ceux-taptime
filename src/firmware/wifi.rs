@@ -112,27 +112,37 @@ impl Wifi {
     body: &str,
     secret: &str,
   ) -> Option<alloc::string::String> {
-    // 1. Open TCP connection
+    // 1. Open TCP connection (retry once — first attempt may clean up a lingering connection)
     let connect_cmd = alloc::format!("AT+CIPSTART=\"TCP\",\"{}\",{}\r\n", host, port);
-    self.tx.write(connect_cmd.as_bytes()).await.unwrap();
-
     let mut buf = [0u8; 256];
-    let connected = match with_timeout(
-      Duration::from_millis(5000),
-      self.rx.read_until_idle(&mut buf),
-    )
-    .await
-    {
-      Ok(Ok(n)) => {
-        let got = &buf[..n];
-        defmt::debug!("ESP << {:a}", got);
-        got.windows(7).any(|w| w == b"CONNECT") && !got.windows(5).any(|w| w == b"ERROR")
+    let mut connected = false;
+
+    for attempt in 0..2 {
+      self.tx.write(connect_cmd.as_bytes()).await.unwrap();
+      connected = match with_timeout(
+        Duration::from_millis(5000),
+        self.rx.read_until_idle(&mut buf),
+      )
+      .await
+      {
+        Ok(Ok(n)) => {
+          let got = &buf[..n];
+          defmt::debug!("ESP << {:a}", got);
+          got.windows(7).any(|w| w == b"CONNECT") && !got.windows(5).any(|w| w == b"ERROR")
+        }
+        _ => false,
+      };
+      if connected {
+        break;
       }
-      _ => false,
-    };
+      if attempt == 0 {
+        defmt::warn!("TCP connect failed, retrying");
+        Timer::after(Duration::from_millis(200)).await;
+      }
+    }
 
     if !connected {
-      defmt::warn!("TCP connect failed");
+      defmt::warn!("TCP connect failed after retry");
       return None;
     }
 
@@ -195,7 +205,10 @@ impl Wifi {
       }
     }
 
-    let _ = self.cmd(b"AT+CIPCLOSE\r\n", b"OK", 1000).await;
+    let already_closed = resp_buf[..total].windows(6).any(|w| w == b"CLOSED");
+    if !already_closed {
+      let _ = self.cmd(b"AT+CIPCLOSE\r\n", b"OK", 1000).await;
+    }
 
     // 6. Extract JSON body:
     //    Buffer looks like: "...SEND OK\r\n\r\n+IPD,222:HTTP/1.0 200 OK\r\n...headers...\r\n\r\n{json}CLOSED\r\n"
