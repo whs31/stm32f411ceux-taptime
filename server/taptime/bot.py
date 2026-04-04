@@ -6,6 +6,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from .db import (
     delete_record,
+    delete_user,
     get_records,
     get_user_by_telegram,
     get_user_by_uid,
@@ -147,6 +148,18 @@ async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"No record found for {d}.")
 
 
+async def cmd_unregister(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    db: aiosqlite.Connection = ctx.bot_data["db"]
+    telegram_id = update.effective_user.id
+    user = await get_user_by_telegram(db, telegram_id)
+    if not user:
+        await update.message.reply_text("You are not registered.")
+        return
+    _, name, _ = user
+    await delete_user(db, telegram_id)
+    await update.message.reply_text(f"Unregistered {name}. Your records are preserved.")
+
+
 async def cmd_setrequiredworkhours(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     user = await get_user_by_telegram(db, update.effective_user.id)
@@ -187,3 +200,4 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("settime", cmd_settime))
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("setrequiredworkhours", cmd_setrequiredworkhours))
+    app.add_handler(CommandHandler("unregister", cmd_unregister))

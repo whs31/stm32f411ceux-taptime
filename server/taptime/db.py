@@ -50,6 +50,14 @@ async def register_user(db: aiosqlite.Connection, telegram_id: int, name: str, u
     await db.commit()
 
 
+async def delete_user(db: aiosqlite.Connection, telegram_id: int) -> bool:
+    cursor = await db.execute(
+        "DELETE FROM users WHERE telegram_id = ?", (telegram_id,)
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
 async def get_records(db: aiosqlite.Connection, uid: str, since: date):
     async with db.execute(
         "SELECT date, check_in, check_out FROM records "

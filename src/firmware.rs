@@ -27,7 +27,7 @@ pub use self::{
 const WIFI_SSID: &str = "McDonald's Wi-Fi Free";
 const WIFI_PASSWORD: &str = "013214415";
 
-const SERVER_HOST: &str = "192.168.0.162";
+const SERVER_HOST: &str = "46.226.160.88";
 const SERVER_PORT: u16 = 8080;
 const SERVER_SECRET: &str = "";
 
