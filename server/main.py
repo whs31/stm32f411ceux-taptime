@@ -27,7 +27,7 @@ async def main() -> None:
         await tg_app.updater.start_polling(drop_pending_updates=True)
         log.info("Telegram bot started")
 
-        mcu_app = create_mcu_app(db, MCU_SECRET)
+        mcu_app = create_mcu_app(db, MCU_SECRET, tg_app)
         runner = web.AppRunner(mcu_app)
         await runner.setup()
         await web.TCPSite(runner, MCU_HOST, MCU_PORT).start()

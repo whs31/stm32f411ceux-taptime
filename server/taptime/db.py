@@ -18,6 +18,12 @@ async def init_db(db: aiosqlite.Connection) -> None:
             check_out   TEXT,
             UNIQUE(uid, date)
         );
+        CREATE TABLE IF NOT EXISTS work_hour_overrides (
+            uid              TEXT NOT NULL,
+            date             TEXT NOT NULL,
+            required_seconds INTEGER NOT NULL,
+            PRIMARY KEY (uid, date)
+        );
     """)
     await db.commit()
 
@@ -112,3 +118,53 @@ async def delete_record(db: aiosqlite.Connection, uid: str, d: str) -> bool:
     )
     await db.commit()
     return cursor.rowcount > 0
+
+
+async def set_required_hours_override(
+    db: aiosqlite.Connection, uid: str, d: str, required_seconds: int
+) -> None:
+    await db.execute(
+        """INSERT INTO work_hour_overrides (uid, date, required_seconds) VALUES (?, ?, ?)
+           ON CONFLICT(uid, date) DO UPDATE SET required_seconds = excluded.required_seconds""",
+        (uid, d, required_seconds),
+    )
+    await db.commit()
+
+
+async def get_required_hours_override(
+    db: aiosqlite.Connection, uid: str, d: str
+) -> int | None:
+    async with db.execute(
+        "SELECT required_seconds FROM work_hour_overrides WHERE uid = ? AND date = ?",
+        (uid, d),
+    ) as cur:
+        row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def get_records_for_month(
+    db: aiosqlite.Connection, uid: str, year: int, month: int
+):
+    month_start = f"{year:04d}-{month:02d}-01"
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    month_end = f"{next_year:04d}-{next_month:02d}-01"
+    async with db.execute(
+        "SELECT date, check_in, check_out FROM records "
+        "WHERE uid = ? AND date >= ? AND date < ?",
+        (uid, month_start, month_end),
+    ) as cur:
+        return await cur.fetchall()
+
+
+async def get_overrides_for_month(
+    db: aiosqlite.Connection, uid: str, year: int, month: int
+):
+    month_start = f"{year:04d}-{month:02d}-01"
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    month_end = f"{next_year:04d}-{next_month:02d}-01"
+    async with db.execute(
+        "SELECT date, required_seconds FROM work_hour_overrides "
+        "WHERE uid = ? AND date >= ? AND date < ?",
+        (uid, month_start, month_end),
+    ) as cur:
+        return await cur.fetchall()

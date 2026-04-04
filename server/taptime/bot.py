@@ -11,6 +11,7 @@ from .db import (
     get_user_by_uid,
     register_user,
     set_record,
+    set_required_hours_override,
 )
 
 
@@ -146,9 +147,43 @@ async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"No record found for {d}.")
 
 
+async def cmd_setrequiredworkhours(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    db: aiosqlite.Connection = ctx.bot_data["db"]
+    user = await get_user_by_telegram(db, update.effective_user.id)
+    if not user:
+        await update.message.reply_text("You are not registered. Use /register <NAME> <UID>.")
+        return
+
+    _, _name, uid = user
+    args = ctx.args or []
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Usage: /setrequiredworkhours <DATE> <HH:MM:SS>\n"
+            "Example: /setrequiredworkhours 2024-01-20 04:00:00"
+        )
+        return
+
+    d, hms = args[0], args[1]
+    try:
+        datetime.strptime(d, "%Y-%m-%d")
+        t = datetime.strptime(hms, "%H:%M:%S").time()
+    except ValueError:
+        await update.message.reply_text("Invalid format. Use DATE=YYYY-MM-DD, HH:MM:SS")
+        return
+
+    required_seconds = t.hour * 3600 + t.minute * 60 + t.second
+    await set_required_hours_override(db, uid, d, required_seconds)
+    h, rem = divmod(required_seconds, 3600)
+    m, s = divmod(rem, 60)
+    await update.message.reply_text(
+        f"Required work hours for {d} set to {h}h {m}m {s}s."
+    )
+
+
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("register", cmd_register))
     app.add_handler(CommandHandler("me", cmd_me))
     app.add_handler(CommandHandler("time", cmd_time))
     app.add_handler(CommandHandler("settime", cmd_settime))
     app.add_handler(CommandHandler("reset", cmd_reset))
+    app.add_handler(CommandHandler("setrequiredworkhours", cmd_setrequiredworkhours))
