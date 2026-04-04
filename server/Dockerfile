@@ -8,6 +8,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 COPY main.py ./
+COPY taptime/ ./taptime/
 
 ENV DB_PATH=/data/taptime.db
 
