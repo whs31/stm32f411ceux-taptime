@@ -54,7 +54,7 @@ async def cmd_register(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Usage: /register <NAME> <UID>")
         return
 
-    name, uid = args[0], args[1]
+    name, uid = args[0], " ".join(args[1:])
     telegram_id = update.effective_user.id
 
     existing = await get_user_by_telegram(db, telegram_id)
@@ -65,11 +65,13 @@ async def cmd_register(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if await get_user_by_uid(db, uid):
-        await update.message.reply_text(f"UID {uid} is already registered to another user.")
+        await update.message.reply_text(
+            f"UID {uid} is already registered to another user."
+        )
         return
 
     await register_user(db, telegram_id, name, uid)
-    await update.message.reply_text(f"Registered: {name} with UID {uid}.")
+    await update.message.reply_text(f"✅ Registered: {name} with UID {uid}.")
 
 
 async def cmd_me(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -93,10 +95,10 @@ async def cmd_me(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         remote_str = "none"
 
-    await update.message.reply_text(
-        f"Name: {name}\n"
-        f"UID: {uid}\n"
-        f"Required: {req_str} per day\n"
+    await update.message.reply_markdown_v2(
+        f"Name: **{name}**\n"
+        f"UID: `{uid}`\n\n"
+        f"Required work hours: {req_str} per day\n"
         f"Remote days: {remote_str}"
     )
 
@@ -112,7 +114,9 @@ async def _send_month_view(
     today = date.today()
     if year > today.year or (year == today.year and month > today.month):
         month_name = date(year, month, 1).strftime("%B")
-        await update.message.reply_text(f"No data for {month_name} {year} (future month).")
+        await update.message.reply_text(
+            f"No data for {month_name} {year} (future month)."
+        )
         return
 
     rows = await month_rows(db, uid, year, month)
@@ -139,7 +143,11 @@ async def _send_month_view(
                 line = f"{prefix}  [weekend]"
         elif r.check_in and r.check_out:
             dur = format_duration(r.check_in, r.check_out)
-            delta_str = f"  {format_delta(r.balance_seconds)}" if r.balance_seconds is not None else ""
+            delta_str = (
+                f"  {format_delta(r.balance_seconds)}"
+                if r.balance_seconds is not None
+                else ""
+            )
             line = f"{prefix}  {r.check_in} → {r.check_out}  ({dur}){delta_str}"
         elif r.check_in:
             line = f"{prefix}  {r.check_in} → …"
@@ -216,7 +224,9 @@ async def cmd_time(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     user = await get_user_by_telegram(db, update.effective_user.id)
     if not user:
-        await update.message.reply_text("You are not registered. Use /register <NAME> <UID>.")
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
         return
 
     _, name, uid = user
@@ -239,7 +249,9 @@ async def cmd_settime(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     user = await get_user_by_telegram(db, update.effective_user.id)
     if not user:
-        await update.message.reply_text("You are not registered. Use /register <NAME> <UID>.")
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
         return
 
     _, _name, uid = user
@@ -266,22 +278,24 @@ async def cmd_settime(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     d = d_obj.isoformat()
     await set_record(db, uid, d, ci, co)
-    await update.message.reply_text(f"Set {d}: in={ci} out={co} ({format_duration(ci, co)})")
+    await update.message.reply_text(
+        f"Set {d}: in={ci} out={co} ({format_duration(ci, co)})"
+    )
 
 
 async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     user = await get_user_by_telegram(db, update.effective_user.id)
     if not user:
-        await update.message.reply_text("You are not registered. Use /register <NAME> <UID>.")
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
         return
 
     _, _name, uid = user
     args = ctx.args or []
     if not args:
-        await update.message.reply_text(
-            "Usage: /reset <DATE>\nExample: /reset today"
-        )
+        await update.message.reply_text("Usage: /reset <DATE>\nExample: /reset today")
         return
 
     d_obj = parse_date(args[0])
@@ -310,11 +324,15 @@ async def cmd_unregister(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(f"Unregistered {name}. Your records are preserved.")
 
 
-async def cmd_setrequiredworkhours(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_setrequiredworkhours(
+    update: Update, ctx: ContextTypes.DEFAULT_TYPE
+) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     user = await get_user_by_telegram(db, update.effective_user.id)
     if not user:
-        await update.message.reply_text("You are not registered. Use /register <NAME> <UID>.")
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
         return
 
     _, _name, uid = user
@@ -347,11 +365,15 @@ async def cmd_setrequiredworkhours(update: Update, ctx: ContextTypes.DEFAULT_TYP
     )
 
 
-async def cmd_setrequiredworktimeforaday(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_setrequiredworktimeforaday(
+    update: Update, ctx: ContextTypes.DEFAULT_TYPE
+) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     user = await get_user_by_telegram(db, update.effective_user.id)
     if not user:
-        await update.message.reply_text("You are not registered. Use /register <NAME> <UID>.")
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
         return
 
     _, _name, uid = user
@@ -362,7 +384,9 @@ async def cmd_setrequiredworktimeforaday(update: Update, ctx: ContextTypes.DEFAU
         rh, rrem = divmod(req, 3600)
         rm, rs = divmod(rrem, 60)
         req_str = f"{rh}h {rm}m" if rs == 0 else f"{rh}h {rm}m {rs}s"
-        await update.message.reply_text(f"Current required work time: {req_str} per day.")
+        await update.message.reply_text(
+            f"Current required work time: {req_str} per day."
+        )
         return
 
     try:
@@ -379,14 +403,18 @@ async def cmd_setrequiredworktimeforaday(update: Update, ctx: ContextTypes.DEFAU
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
     req_str = f"{h}h {m}m" if s == 0 else f"{h}h {m}m {s}s"
-    await update.message.reply_text(f"Default required work time set to {req_str} per day.")
+    await update.message.reply_text(
+        f"Default required work time set to {req_str} per day."
+    )
 
 
 async def cmd_setremoteworkdays(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     user = await get_user_by_telegram(db, update.effective_user.id)
     if not user:
-        await update.message.reply_text("You are not registered. Use /register <NAME> <UID>.")
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
         return
 
     _, _name, uid = user
@@ -420,15 +448,15 @@ async def cmd_dayoff(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     user = await get_user_by_telegram(db, update.effective_user.id)
     if not user:
-        await update.message.reply_text("You are not registered. Use /register <NAME> <UID>.")
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
         return
 
     _, _name, uid = user
     args = ctx.args or []
     if not args:
-        await update.message.reply_text(
-            "Usage: /dayoff <DATE>\nExample: /dayoff today"
-        )
+        await update.message.reply_text("Usage: /dayoff <DATE>\nExample: /dayoff today")
         return
 
     d_obj = parse_date(args[0])
@@ -450,4 +478,6 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("unregister", cmd_unregister))
     app.add_handler(CommandHandler("setremoteworkdays", cmd_setremoteworkdays))
     app.add_handler(CommandHandler("dayoff", cmd_dayoff))
-    app.add_handler(CommandHandler("setrequiredworktimeforaday", cmd_setrequiredworktimeforaday))
+    app.add_handler(
+        CommandHandler("setrequiredworktimeforaday", cmd_setrequiredworktimeforaday)
+    )
