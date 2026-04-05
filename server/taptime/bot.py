@@ -19,12 +19,10 @@ from .db import (
     set_required_hours_override,
     set_user_required_seconds,
 )
+from .chart import render_month, render_year
 from .workhours import (
-    DEFAULT_REQUIRED_SECONDS,
     WEEKDAY_ABBR,
     WEEKDAY_FROM_ABBR,
-    format_balance,
-    format_delta,
     month_rows,
     seconds_worked,
     user_default_seconds,
@@ -47,45 +45,102 @@ def format_duration(ci: str, co: str) -> str:
     return f"{h}h {m}m {s}s"
 
 
-# ── bar chart helpers ────────────────────────────────────────────────────────
+# ── table helpers ─────────────────────────────────────────────────────────────
 
-_DAY_REQ_W = 10   # chars representing the required-hours portion of a day bar
-_DAY_OT_W  = 2    # chars representing overtime headroom
-_DAY_BAR_W = _DAY_REQ_W + _DAY_OT_W   # 12 chars total
-
-_SUM_BAR_W  = 16   # width of summary histogram bars
-_BAL_SCALE  = 1800 # seconds per ▲/▼ char (30 min)
+def _fmt_hms(seconds: int) -> str:
+    h, rem = divmod(abs(seconds), 3600)
+    m = rem // 60
+    return f"{h}h{m:02d}m"
 
 
-def _day_bar(worked_s: int | None, required_s: int, in_progress: bool = False) -> str:
-    """12-char bar: 10 slots for required hours, 2 slots for overtime."""
-    if in_progress:
-        return "▒" * _DAY_BAR_W
-    if required_s == 0:
-        return " " * _DAY_BAR_W
-    if worked_s is None:
-        return "░" * _DAY_REQ_W + " " * _DAY_OT_W
-    clamped   = min(worked_s, required_s)
-    filled    = round(clamped * _DAY_REQ_W / required_s)
-    ot_filled = min(_DAY_OT_W, round(max(0, worked_s - required_s) * _DAY_OT_W / required_s))
-    return "█" * filled + "░" * (_DAY_REQ_W - filled) + "▲" * ot_filled + " " * (_DAY_OT_W - ot_filled)
+def _fmt_delta(seconds: int) -> str:
+    sign = "+" if seconds >= 0 else "-"
+    return f"{sign}{_fmt_hms(seconds)}"
 
 
-def _pct_bar(value: int | float, total: int | float, w: int = _SUM_BAR_W) -> str:
-    """Filled █/░ bar proportional to value/total."""
-    if total <= 0:
-        return "░" * w
-    n = min(w, round(value * w / total))
-    return "█" * n + "░" * (w - n)
+def _month_table(rows: list, name: str, month_name: str, year: int, user_req: int) -> str:
+    req_h = user_req / 3600
+    header = f"{month_name} {year} -- {name}  (req: {req_h:.1f}h/day)"
+    cols = ("Date", "Type", "In", "Out", "Worked", "Balance")
+    widths = [6, 7, 5, 5, 6, 8]
+    sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
+    hrow = "|" + "|".join(f" {c:<{w}} " for c, w in zip(cols, widths)) + "|"
+
+    def row_line(values: tuple) -> str:
+        return "|" + "|".join(f" {str(v):<{w}} " for v, w in zip(values, widths)) + "|"
+
+    lines = [header, sep, hrow, sep]
+    for r in rows:
+        date_str = f"{r.d.day:2d} {r.weekday_abbr}"
+        if r.is_day_off:
+            lines.append(row_line((date_str, "off", "", "", "", "")))
+        elif r.is_remote:
+            ci = r.check_in[:5] if r.check_in else ""
+            co = r.check_out[:5] if r.check_out else ""
+            lines.append(row_line((date_str, "remote", ci, co, "", "")))
+        elif r.check_in and r.check_out:
+            w = seconds_worked(r.check_in, r.check_out)
+            typ = "wknd" if r.is_weekend else "work"
+            ci, co = r.check_in[:5], r.check_out[:5]
+            worked = _fmt_hms(w)
+            delta = "" if r.is_weekend or r.balance_seconds is None else _fmt_delta(r.balance_seconds)
+            lines.append(row_line((date_str, typ, ci, co, worked, delta)))
+        elif r.check_in:
+            typ = "wknd" if r.is_weekend else "work"
+            lines.append(row_line((date_str, typ, r.check_in[:5], "...", "", "")))
+        elif not r.is_weekend:
+            lines.append(row_line((date_str, "missing", "", "", "", "")))
+        else:
+            lines.append(row_line((date_str, "wknd", "", "", "", "")))
+
+    lines.append(sep)
+
+    non_wknd = [r for r in rows if not r.is_weekend]
+    day_off_count = sum(1 for r in non_wknd if r.is_day_off)
+    worked_days = sum(
+        1 for r in non_wknd
+        if not r.is_day_off and not r.is_remote and r.check_in and r.check_out
+    )
+    weekend_secs = sum(
+        seconds_worked(r.check_in, r.check_out)
+        for r in rows if r.is_weekend and r.check_in and r.check_out
+    )
+    total_ot = sum(r.balance_seconds for r in rows if r.balance_seconds and r.balance_seconds > 0)
+    total_ut = sum(abs(r.balance_seconds) for r in rows if r.balance_seconds and r.balance_seconds < 0)
+    net = total_ot - total_ut
+
+    summary_parts = [f"Worked: {worked_days}d", f"Day-offs: {day_off_count}d"]
+    if weekend_secs:
+        summary_parts.append(f"Weekend: {_fmt_hms(weekend_secs)}")
+    if total_ot:
+        summary_parts.append(f"OT: +{_fmt_hms(total_ot)}")
+    if total_ut:
+        summary_parts.append(f"UT: -{_fmt_hms(total_ut)}")
+    summary_parts.append(f"Balance: {_fmt_delta(net)}")
+    lines.append("  ".join(summary_parts))
+
+    return "\n".join(lines)
 
 
-def _signed_bar(seconds: int, scale: int = _BAL_SCALE, w: int = _SUM_BAR_W) -> str:
-    """▲ for overtime, ▼ for undertime, ─ for zero; padded with ░ to width w."""
-    if seconds == 0:
-        return "─" * w
-    char = "▲" if seconds > 0 else "▼"
-    n = min(w, max(1, round(abs(seconds) / scale)))
-    return char * n + "░" * (w - n)
+def _year_table(month_data: list[tuple[str, int]], name: str, year: int) -> str:
+    header = f"{year} -- {name}"
+    cols = ("Month", "Balance")
+    widths = [5, 9]
+    sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
+    hrow = "|" + "|".join(f" {c:<{w}} " for c, w in zip(cols, widths)) + "|"
+
+    def row_line(values: tuple) -> str:
+        return "|" + "|".join(f" {str(v):<{w}} " for v, w in zip(values, widths)) + "|"
+
+    lines = [header, sep, hrow, sep]
+    total = 0
+    for mname, net_s in month_data:
+        total += net_s
+        lines.append(row_line((mname, _fmt_delta(net_s))))
+    lines.append(sep)
+    lines.append(row_line(("Total", _fmt_delta(total))))
+    lines.append(sep)
+    return "\n".join(lines)
 
 
 async def cmd_register(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -162,89 +217,11 @@ async def _send_month_view(
     month_name = date(year, month, 1).strftime("%B")
     user_req = await user_default_seconds(db, uid)
 
-    lines = [f"{month_name} {year} \u2014 {name}", ""]
+    chart_buf = render_month(rows, name, month_name, year, user_req)
+    await update.message.reply_photo(photo=chart_buf)
 
-    # ── per-day table rows ───────────────────────────────────────────────────
-    for r in rows:
-        prefix = f"{r.d.day:2d} {r.weekday_abbr}"   # "01 Mon"
-
-        if r.is_day_off:
-            bar    = "\u2500" * _DAY_BAR_W
-            detail = "[off]"
-        elif r.is_remote:
-            bar    = "\u2588" * _DAY_REQ_W + " " * _DAY_OT_W
-            detail = "[remote]"
-        elif r.is_weekend:
-            if r.check_in and r.check_out:
-                w = seconds_worked(r.check_in, r.check_out)
-                bar    = _day_bar(w, user_req)
-                wh, wm = divmod(w // 60, 60)
-                detail = f"{wh}h{wm:02d}m [wknd]"
-            elif r.check_in:
-                bar    = _day_bar(None, user_req, in_progress=True)
-                detail = f"{r.check_in}\u2192\u2026 [wknd]"
-            else:
-                bar    = "\u2591" * _DAY_REQ_W + " " * _DAY_OT_W
-                detail = "[wknd]"
-        elif r.check_in and r.check_out:
-            w   = seconds_worked(r.check_in, r.check_out)
-            bar = _day_bar(w, r.required_seconds)
-            wh, wm = divmod(w // 60, 60)
-            delta  = f" {format_delta(r.balance_seconds)}" if r.balance_seconds else ""
-            detail = f"{wh}h{wm:02d}m{delta}"
-        elif r.check_in:
-            bar    = _day_bar(None, r.required_seconds, in_progress=True)
-            detail = f"{r.check_in}\u2192\u2026"
-        else:
-            bar    = _day_bar(None, r.required_seconds)
-            detail = "\u2014"
-
-        lines.append(f"{prefix} {bar} {detail}")
-
-    # ── summary histogram ────────────────────────────────────────────────────
-    SEP = "\u2500" * 34
-    lines += ["", SEP]
-
-    non_wknd       = [r for r in rows if not r.is_weekend]
-    total_wkdays   = len(non_wknd)
-    day_off_count  = sum(1 for r in non_wknd if r.is_day_off)
-    worked_days    = sum(
-        1 for r in non_wknd
-        if not r.is_day_off and not r.is_remote and r.check_in and r.check_out
-    )
-    weekend_secs   = sum(
-        seconds_worked(r.check_in, r.check_out)
-        for r in rows if r.is_weekend and r.check_in and r.check_out
-    )
-    total_ot = sum(r.balance_seconds for r in rows if r.balance_seconds and r.balance_seconds > 0)
-    total_ut = sum(abs(r.balance_seconds) for r in rows if r.balance_seconds and r.balance_seconds < 0)
-    net      = total_ot - total_ut
-
-    def _srow(label: str, bar: str, value: str) -> str:
-        return f"{label:<10}{bar} {value}"
-
-    if total_wkdays:
-        lines.append(_srow("Work hrs", _pct_bar(worked_days, total_wkdays), f"{worked_days}/{total_wkdays}d"))
-    if day_off_count:
-        lines.append(_srow("Day-offs", _pct_bar(day_off_count, total_wkdays), f"{day_off_count}d"))
-    if weekend_secs:
-        wh, wm = divmod(weekend_secs // 60, 60)
-        days_eq = weekend_secs / user_req if user_req else 0
-        lines.append(_srow("Weekend", _pct_bar(weekend_secs, user_req), f"{wh}h{wm:02d}m ({days_eq:.1f}d)"))
-    if total_ot:
-        oth, otm = divmod(total_ot // 60, 60)
-        lines.append(_srow("Overtime", _signed_bar(total_ot), f"+{oth}h{otm:02d}m"))
-    if total_ut:
-        uth, utm = divmod(total_ut // 60, 60)
-        lines.append(_srow("Undertime", _signed_bar(-total_ut), f"-{uth}h{utm:02d}m"))
-
-    bal_str = "\u00b10 (balanced)" if net == 0 else format_balance(net)
-    lines.append(_srow("Balance", _signed_bar(net), bal_str))
-
-    await update.message.reply_text(
-        "```\n" + "\n".join(lines) + "\n```",
-        parse_mode="Markdown",
-    )
+    table = _month_table(rows, name, month_name, year, user_req)
+    await update.message.reply_text("```\n" + table + "\n```", parse_mode="Markdown")
 
 
 async def _send_year_view(
@@ -260,40 +237,19 @@ async def _send_year_view(
         return
 
     last_month = today.month if year == today.year else 12
-    user_req = await user_default_seconds(db, uid)
 
-    lines = [f"{year} \u2014 {name}", ""]
-    total         = 0
-    total_wknd_s  = 0
-
+    month_data: list[tuple[str, int]] = []
     for m in range(1, last_month + 1):
         mname = date(year, m, 1).strftime("%b")
         mrows = await month_rows(db, uid, year, m)
-        net   = sum(r.balance_seconds for r in mrows if r.balance_seconds is not None)
-        total += net
-        total_wknd_s += sum(
-            seconds_worked(r.check_in, r.check_out)
-            for r in mrows if r.is_weekend and r.check_in and r.check_out
-        )
-        bar   = _signed_bar(net, scale=_BAL_SCALE, w=10)
-        delta = format_delta(net)
-        lines.append(f"{mname} {bar} {delta:>8}")
+        net = sum(r.balance_seconds for r in mrows if r.balance_seconds is not None)
+        month_data.append((mname, net))
 
-    SEP = "\u2500" * 26
-    lines += ["", SEP]
+    chart_buf = render_year(month_data, name, year)
+    await update.message.reply_photo(photo=chart_buf)
 
-    if total_wknd_s:
-        wh, wm = divmod(total_wknd_s // 60, 60)
-        days_eq = total_wknd_s / user_req if user_req else 0
-        lines.append(f"Weekend  {wh}h{wm:02d}m ({days_eq:.1f}d)")
-
-    bal_str = "\u00b10 (balanced)" if total == 0 else format_balance(total)
-    lines.append(f"Total    {bal_str}")
-
-    await update.message.reply_text(
-        "```\n" + "\n".join(lines) + "\n```",
-        parse_mode="Markdown",
-    )
+    table = _year_table(month_data, name, year)
+    await update.message.reply_text("```\n" + table + "\n```", parse_mode="Markdown")
 
 
 async def cmd_time(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
