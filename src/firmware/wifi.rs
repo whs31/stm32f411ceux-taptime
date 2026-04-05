@@ -212,11 +212,10 @@ impl Wifi {
 
     // 6. Extract JSON body:
     //    Buffer looks like: "...SEND OK\r\n\r\n+IPD,222:HTTP/1.0 200 OK\r\n...headers...\r\n\r\n{json}CLOSED\r\n"
-    //    Skip past "+IPD,<len>:" to reach the raw HTTP response, then find \r\n\r\n.
+    //    The "+IPD,<len>:" prefix can be split across read_until_idle calls, dropping a few bytes.
+    //    Search for "HTTP/" directly — it is always intact regardless of AT-prefix truncation.
     let data = &resp_buf[..total];
-    let ipd_pos = data.windows(5).position(|w| w == b"+IPD,")?;
-    let colon_off = data[ipd_pos..].iter().position(|&b| b == b':')?;
-    let http_start = ipd_pos + colon_off + 1;
+    let http_start = data.windows(5).position(|w| w == b"HTTP/")?;
     let body_start = data[http_start..]
       .windows(4)
       .position(|w| w == b"\r\n\r\n")
