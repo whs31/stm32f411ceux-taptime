@@ -269,7 +269,17 @@ async def cmd_time(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await _send_year_view(update, db, uid, name, int(arg))
         return
 
-    await update.message.reply_text("Usage: /time [YYYY]\nExample: /time 2026")
+    try:
+        parsed = datetime.strptime(arg, "%Y-%m")
+        await _send_month_view(update, db, uid, name, parsed.year, parsed.month)
+        return
+    except ValueError:
+        pass
+
+    await update.message.reply_text(
+        "Usage: /time [YYYY] or /time [YYYY-MM]\n"
+        "Examples: /time 2026    /time 2026-03"
+    )
 
 
 async def cmd_settime(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
