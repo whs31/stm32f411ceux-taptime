@@ -31,6 +31,16 @@ from .workhours import (
 )
 
 
+def parse_time(s: str) -> str | None:
+    """Parse HH:MM or HH:MM:SS, return normalized HH:MM:SS string or None."""
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%H:%M:%S")
+        except ValueError:
+            pass
+    return None
+
+
 def parse_date(s: str) -> date | None:
     if s.lower() == "today":
         return date.today()
@@ -285,12 +295,10 @@ async def cmd_settime(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Invalid date. Use YYYY-MM-DD or 'today'.")
         return
 
-    ci, co = args[1], args[2]
-    try:
-        datetime.strptime(ci, "%H:%M:%S")
-        datetime.strptime(co, "%H:%M:%S")
-    except ValueError:
-        await update.message.reply_text("Invalid time format. Use HH:MM:SS")
+    ci = parse_time(args[1])
+    co = parse_time(args[2])
+    if ci is None or co is None:
+        await update.message.reply_text("Invalid time format. Use HH:MM or HH:MM:SS")
         return
 
     d = d_obj.isoformat()
