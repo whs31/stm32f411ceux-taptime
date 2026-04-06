@@ -36,3 +36,9 @@ CREATE TABLE IF NOT EXISTS user_settings (
     uid              TEXT PRIMARY KEY,
     required_seconds INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS remote_day_overrides (
+    uid  TEXT NOT NULL,
+    date TEXT NOT NULL,
+    PRIMARY KEY (uid, date)
+);

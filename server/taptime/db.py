@@ -162,6 +162,29 @@ async def get_day_offs_for_month(
     return [r[0] for r in rows]
 
 
+async def add_remote_day_override(db: aiosqlite.Connection, uid: str, d: str) -> None:
+    await db.execute(_q("remote_day_overrides/add.sql"), (uid, d))
+    await db.commit()
+
+
+async def remove_remote_day_override(db: aiosqlite.Connection, uid: str, d: str) -> None:
+    await db.execute(_q("remote_day_overrides/delete.sql"), (uid, d))
+    await db.commit()
+
+
+async def get_remote_day_overrides_for_month(
+    db: aiosqlite.Connection, uid: str, year: int, month: int
+) -> list[str]:
+    month_start = f"{year:04d}-{month:02d}-01"
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    month_end = f"{next_year:04d}-{next_month:02d}-01"
+    async with db.execute(
+        _q("remote_day_overrides/get_for_month.sql"), (uid, month_start, month_end)
+    ) as cur:
+        rows = await cur.fetchall()
+    return [r[0] for r in rows]
+
+
 async def set_user_required_seconds(db: aiosqlite.Connection, uid: str, seconds: int) -> None:
     await db.execute(_q("user_settings/set.sql"), (uid, seconds))
     await db.commit()

@@ -6,6 +6,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from .db import (
     add_day_off,
+    add_remote_day_override,
     delete_record,
     delete_user,
     get_remote_workdays,
@@ -14,6 +15,7 @@ from .db import (
     get_user_required_seconds,
     register_user,
     remove_day_off,
+    remove_remote_day_override,
     set_record,
     set_remote_workdays,
     set_required_hours_override,
@@ -344,6 +346,9 @@ async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"No record found for {d}.")
 
 
+_UNREGISTER_CONFIRM = "yes, i want to delete all my data"
+
+
 async def cmd_unregister(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     telegram_id = update.effective_user.id
@@ -351,9 +356,20 @@ async def cmd_unregister(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     if not user:
         await update.message.reply_text("You are not registered.")
         return
-    _, name, _ = user
+    _, name, uid = user
+
+    confirmation = " ".join(ctx.args or []).lower()
+    if confirmation != _UNREGISTER_CONFIRM:
+        await update.message.reply_text(
+            f"WARNING: This will unregister {name} (UID: {uid}).\n"
+            "All your check-in/out records, settings, and overrides will be lost.\n\n"
+            "To confirm, send:\n"
+            "/unregister Yes, I want to delete all my data"
+        )
+        return
+
     await delete_user(db, telegram_id)
-    await update.message.reply_text(f"Unregistered {name}. Your records are preserved.")
+    await update.message.reply_text(f"Unregistered {name}. All your data has been deleted.")
 
 
 async def cmd_setrequiredworkhours(
@@ -500,6 +516,56 @@ async def cmd_dayoff(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"Day off recorded for {d_obj.isoformat()}.")
 
 
+async def cmd_setremoteday(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    db: aiosqlite.Connection = ctx.bot_data["db"]
+    user = await get_user_by_telegram(db, update.effective_user.id)
+    if not user:
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
+        return
+
+    _, _name, uid = user
+    args = ctx.args or []
+    if not args:
+        await update.message.reply_text("Usage: /setremoteday <DATE>\nExample: /setremoteday today")
+        return
+
+    d_obj = parse_date(args[0])
+    if d_obj is None:
+        await update.message.reply_text("Invalid date. Use YYYY-MM-DD or 'today'.")
+        return
+
+    await add_remote_day_override(db, uid, d_obj.isoformat())
+    await update.message.reply_text(f"{d_obj.isoformat()} marked as remote.")
+
+
+async def cmd_unsetremoteday(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    db: aiosqlite.Connection = ctx.bot_data["db"]
+    user = await get_user_by_telegram(db, update.effective_user.id)
+    if not user:
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
+        return
+
+    _, _name, uid = user
+    args = ctx.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /unsetremoteday <DATE>\nExample: /unsetremoteday today"
+        )
+        return
+
+    d_obj = parse_date(args[0])
+    if d_obj is None:
+        await update.message.reply_text("Invalid date. Use YYYY-MM-DD or 'today'.")
+        return
+
+    await remove_remote_day_override(db, uid, d_obj.isoformat())
+    await update.message.reply_text(f"Remote override removed for {d_obj.isoformat()}.")
+
+
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("register", cmd_register))
     app.add_handler(CommandHandler("me", cmd_me))
@@ -513,3 +579,5 @@ def register_handlers(app: Application) -> None:
     app.add_handler(
         CommandHandler("setrequiredworktimeforaday", cmd_setrequiredworktimeforaday)
     )
+    app.add_handler(CommandHandler("setremoteday", cmd_setremoteday))
+    app.add_handler(CommandHandler("unsetremoteday", cmd_unsetremoteday))

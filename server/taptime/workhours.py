@@ -8,6 +8,7 @@ from .db import (
     get_day_offs_for_month,
     get_overrides_for_month,
     get_records_for_month,
+    get_remote_day_overrides_for_month,
     get_remote_workdays,
     get_required_hours_override,
     get_user_required_seconds,
@@ -94,6 +95,7 @@ async def month_rows(
     records = await get_records_for_month(db, uid, year, month)
     overrides = await get_overrides_for_month(db, uid, year, month)
     remote_wdays = set(await get_remote_workdays(db, uid))
+    remote_day_dates = set(await get_remote_day_overrides_for_month(db, uid, year, month))
     day_off_dates = set(await get_day_offs_for_month(db, uid, year, month))
     user_req = await user_default_seconds(db, uid)
 
@@ -124,7 +126,7 @@ async def month_rows(
 
         if d_str in override_dict:
             req = override_dict[d_str]
-            is_remote = wd in remote_wdays
+            is_remote = wd in remote_wdays or d_str in remote_day_dates
             if is_remote:
                 bal: int | None = 0
             elif ci and co:
@@ -140,8 +142,13 @@ async def month_rows(
             continue
 
         if wd >= 5:
-            # Natural weekend — only include if there's a record
-            if ci or co:
+            # Natural weekend — treated as remote if override set, otherwise only include if there's a record
+            if d_str in remote_day_dates:
+                rows.append(DayRow(
+                    d=d, weekday_abbr=WEEKDAY_ABBR[wd], is_remote=True,
+                    check_in=ci, check_out=co, required_seconds=0, balance_seconds=0,
+                ))
+            elif ci or co:
                 rows.append(DayRow(
                     d=d, weekday_abbr=WEEKDAY_ABBR[wd], is_weekend=True,
                     check_in=ci, check_out=co, balance_seconds=None,
@@ -150,7 +157,7 @@ async def month_rows(
 
         # Regular weekday (Mon–Fri)
         req = user_req
-        is_remote = wd in remote_wdays
+        is_remote = wd in remote_wdays or d_str in remote_day_dates
         if is_remote:
             bal = 0
         elif ci and co:
