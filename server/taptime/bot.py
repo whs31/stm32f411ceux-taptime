@@ -62,40 +62,31 @@ def _fmt_delta(seconds: int) -> str:
 
 def _month_table(rows: list, name: str, month_name: str, year: int, user_req: int) -> str:
     req_h = user_req / 3600
-    header = f"{month_name} {year} -- {name}  (req: {req_h:.1f}h/day)"
-    cols = ("Date", "Type", "In", "Out", "Worked", "Balance")
-    widths = [6, 7, 5, 5, 6, 8]
-    sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
-    hrow = "|" + "|".join(f" {c:<{w}} " for c, w in zip(cols, widths)) + "|"
+    lines = [f"{month_name} {year} / {name} / req {req_h:.1f}h", ""]
 
-    def row_line(values: tuple) -> str:
-        return "|" + "|".join(f" {str(v):<{w}} " for v, w in zip(values, widths)) + "|"
-
-    lines = [header, sep, hrow, sep]
     for r in rows:
-        date_str = f"{r.d.day:2d} {r.weekday_abbr}"
+        prefix = f"{r.d.day:2d} {r.weekday_abbr}"
         if r.is_day_off:
-            lines.append(row_line((date_str, "off", "", "", "", "")))
+            detail = "[off]"
         elif r.is_remote:
-            ci = r.check_in[:5] if r.check_in else ""
-            co = r.check_out[:5] if r.check_out else ""
-            lines.append(row_line((date_str, "remote", ci, co, "", "")))
+            detail = "[remote]"
+        elif r.is_weekend and not (r.check_in and r.check_out):
+            detail = "[weekend]" if not r.check_in else f"{r.check_in[:5]}->..."
         elif r.check_in and r.check_out:
             w = seconds_worked(r.check_in, r.check_out)
-            typ = "wknd" if r.is_weekend else "work"
-            ci, co = r.check_in[:5], r.check_out[:5]
             worked = _fmt_hms(w)
-            delta = "" if r.is_weekend or r.balance_seconds is None else _fmt_delta(r.balance_seconds)
-            lines.append(row_line((date_str, typ, ci, co, worked, delta)))
+            time_range = f"{r.check_in[:5]}-{r.check_out[:5]}"
+            if r.is_weekend:
+                detail = f"{time_range}  {worked} [wknd]"
+            elif r.balance_seconds is not None:
+                detail = f"{time_range}  {worked} {_fmt_delta(r.balance_seconds)}"
+            else:
+                detail = f"{time_range}  {worked}"
         elif r.check_in:
-            typ = "wknd" if r.is_weekend else "work"
-            lines.append(row_line((date_str, typ, r.check_in[:5], "...", "", "")))
-        elif not r.is_weekend:
-            lines.append(row_line((date_str, "missing", "", "", "", "")))
+            detail = f"{r.check_in[:5]}->..."
         else:
-            lines.append(row_line((date_str, "wknd", "", "", "", "")))
-
-    lines.append(sep)
+            detail = "--"
+        lines.append(f"{prefix}  {detail}")
 
     non_wknd = [r for r in rows if not r.is_weekend]
     day_off_count = sum(1 for r in non_wknd if r.is_day_off)
@@ -111,37 +102,29 @@ def _month_table(rows: list, name: str, month_name: str, year: int, user_req: in
     total_ut = sum(abs(r.balance_seconds) for r in rows if r.balance_seconds and r.balance_seconds < 0)
     net = total_ot - total_ut
 
-    summary_parts = [f"Worked: {worked_days}d", f"Day-offs: {day_off_count}d"]
-    if weekend_secs:
-        summary_parts.append(f"Weekend: {_fmt_hms(weekend_secs)}")
+    lines.append("")
+    lines.append(f"Worked {worked_days}d  Off {day_off_count}d  Balance {_fmt_delta(net)}")
+    extras = []
     if total_ot:
-        summary_parts.append(f"OT: +{_fmt_hms(total_ot)}")
+        extras.append(f"OT +{_fmt_hms(total_ot)}")
     if total_ut:
-        summary_parts.append(f"UT: -{_fmt_hms(total_ut)}")
-    summary_parts.append(f"Balance: {_fmt_delta(net)}")
-    lines.append("  ".join(summary_parts))
+        extras.append(f"UT -{_fmt_hms(total_ut)}")
+    if weekend_secs:
+        extras.append(f"Wknd {_fmt_hms(weekend_secs)}")
+    if extras:
+        lines.append("  ".join(extras))
 
     return "\n".join(lines)
 
 
 def _year_table(month_data: list[tuple[str, int]], name: str, year: int) -> str:
-    header = f"{year} -- {name}"
-    cols = ("Month", "Balance")
-    widths = [5, 9]
-    sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
-    hrow = "|" + "|".join(f" {c:<{w}} " for c, w in zip(cols, widths)) + "|"
-
-    def row_line(values: tuple) -> str:
-        return "|" + "|".join(f" {str(v):<{w}} " for v, w in zip(values, widths)) + "|"
-
-    lines = [header, sep, hrow, sep]
+    lines = [f"{year} / {name}", ""]
     total = 0
     for mname, net_s in month_data:
         total += net_s
-        lines.append(row_line((mname, _fmt_delta(net_s))))
-    lines.append(sep)
-    lines.append(row_line(("Total", _fmt_delta(total))))
-    lines.append(sep)
+        lines.append(f"{mname:<3}  {_fmt_delta(net_s)}")
+    lines.append("---  ---------")
+    lines.append(f"Tot  {_fmt_delta(total)}")
     return "\n".join(lines)
 
 
