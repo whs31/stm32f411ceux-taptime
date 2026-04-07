@@ -6,6 +6,7 @@ import aiosqlite
 
 from .db import (
     get_day_offs_for_month,
+    get_non_remote_day_overrides_for_month,
     get_overrides_for_month,
     get_records_for_month,
     get_remote_day_overrides_for_month,
@@ -96,6 +97,7 @@ async def month_rows(
     overrides = await get_overrides_for_month(db, uid, year, month)
     remote_wdays = set(await get_remote_workdays(db, uid))
     remote_day_dates = set(await get_remote_day_overrides_for_month(db, uid, year, month))
+    non_remote_day_dates = set(await get_non_remote_day_overrides_for_month(db, uid, year, month))
     day_off_dates = set(await get_day_offs_for_month(db, uid, year, month))
     user_req = await user_default_seconds(db, uid)
 
@@ -126,7 +128,7 @@ async def month_rows(
 
         if d_str in override_dict:
             req = override_dict[d_str]
-            is_remote = wd in remote_wdays or d_str in remote_day_dates
+            is_remote = (wd in remote_wdays or d_str in remote_day_dates) and d_str not in non_remote_day_dates
             if is_remote:
                 bal: int | None = 0
             elif ci and co:
@@ -143,7 +145,7 @@ async def month_rows(
 
         if wd >= 5:
             # Natural weekend — treated as remote if override set, otherwise only include if there's a record
-            if d_str in remote_day_dates:
+            if d_str in remote_day_dates and d_str not in non_remote_day_dates:
                 rows.append(DayRow(
                     d=d, weekday_abbr=WEEKDAY_ABBR[wd], is_remote=True,
                     check_in=ci, check_out=co, required_seconds=0, balance_seconds=0,
@@ -157,7 +159,7 @@ async def month_rows(
 
         # Regular weekday (Mon–Fri)
         req = user_req
-        is_remote = wd in remote_wdays or d_str in remote_day_dates
+        is_remote = (wd in remote_wdays or d_str in remote_day_dates) and d_str not in non_remote_day_dates
         if is_remote:
             bal = 0
         elif ci and co:
