@@ -1,4 +1,5 @@
 import logging
+import random
 from datetime import date, datetime
 
 import aiosqlite
@@ -10,6 +11,22 @@ from .db import get_user_by_uid, reopen_checkin, today_record, upsert_check_in, 
 from .workhours import format_balance, month_net_balance, required_seconds_for_date, seconds_worked
 
 log = logging.getLogger(__name__)
+
+EARLY_CHECKIN_CUTOFF = "10:00:00"
+LATE_CHECKOUT_CUTOFF = "20:00:00"
+
+_EARLY_CHECKIN_MESSAGES = [
+    "Great timing — an early start sets the tone for the day!",
+    "Nice, you're off to a flying start. Keep it up!",
+    "Impressive start! Today's off to a great beginning.",
+]
+
+_LATE_CHECKOUT_MESSAGES = [
+    "You worked well today. Time to rest!",
+    "That's some serious dedication. Well done!",
+    "Great work, you went the extra mile today.",
+    "Impressive push today. Enjoy your evening!",
+]
 
 
 def _parse_time(ts: str) -> datetime | None:
@@ -24,11 +41,11 @@ def _parse_time(ts: str) -> datetime | None:
 
 
 async def _notify_checkin(tg_app: Application, telegram_id: int, name: str, ci: str) -> None:
+    text = f"Hello, {name}! Checked in at {ci}."
+    if ci < EARLY_CHECKIN_CUTOFF:
+        text += f"\n{random.choice(_EARLY_CHECKIN_MESSAGES)}"
     try:
-        await tg_app.bot.send_message(
-            chat_id=telegram_id,
-            text=f"Hello, {name}! Checked in at {ci}.",
-        )
+        await tg_app.bot.send_message(chat_id=telegram_id, text=text)
     except Exception as exc:
         log.warning("Failed to send check-in notification to %d: %s", telegram_id, exc)
 
@@ -55,15 +72,16 @@ async def _notify_checkout(
     month_str = format_balance(month_bal)
     month_name = today.strftime("%B")
 
+    text = (
+        f"Checked out at {co}\n"
+        f"Today: {day_bal}\n"
+        f"{month_name}: {month_str}"
+    )
+    if co >= LATE_CHECKOUT_CUTOFF:
+        text += f"\n{random.choice(_LATE_CHECKOUT_MESSAGES)}"
+
     try:
-        await tg_app.bot.send_message(
-            chat_id=telegram_id,
-            text=(
-                f"Checked out at {co}\n"
-                f"Today: {day_bal}\n"
-                f"{month_name}: {month_str}"
-            ),
-        )
+        await tg_app.bot.send_message(chat_id=telegram_id, text=text)
     except Exception as exc:
         log.warning("Failed to send check-out notification to %d: %s", telegram_id, exc)
 
