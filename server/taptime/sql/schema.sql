@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS day_offs (
 
 CREATE TABLE IF NOT EXISTS user_settings (
     uid              TEXT PRIMARY KEY,
-    required_seconds INTEGER NOT NULL
+    required_seconds INTEGER NOT NULL DEFAULT 30600,
+    lunch_seconds    INTEGER NOT NULL DEFAULT 1800
 );
 
 CREATE TABLE IF NOT EXISTS remote_day_overrides (

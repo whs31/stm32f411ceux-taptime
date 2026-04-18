@@ -19,15 +19,18 @@ from .db import (
     set_record,
     set_remote_workdays,
     set_required_hours_override,
+    set_user_lunch_seconds,
     set_user_required_seconds,
 )
 from .chart import render_month, render_year
 from .workhours import (
+    DEFAULT_REQUIRED_SECONDS,
     WEEKDAY_ABBR,
     WEEKDAY_FROM_ABBR,
     month_rows,
     seconds_worked,
     user_default_seconds,
+    user_lunch_seconds,
 )
 
 
@@ -180,6 +183,14 @@ async def cmd_me(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     rm, rs = divmod(rrem, 60)
     req_str = f"{rh}h {rm}m" if rs == 0 else f"{rh}h {rm}m {rs}s"
 
+    lunch = await user_lunch_seconds(db, uid)
+    lh, lrem = divmod(lunch, 3600)
+    lm, ls = divmod(lrem, 60)
+    if lh:
+        lunch_str = f"{lh}h {lm}m" if ls == 0 else f"{lh}h {lm}m {ls}s"
+    else:
+        lunch_str = f"{lm}m" if ls == 0 else f"{lm}m {ls}s"
+
     remote_wdays = await get_remote_workdays(db, uid)
     if remote_wdays:
         remote_str = ", ".join(WEEKDAY_ABBR[wd] for wd in sorted(remote_wdays))
@@ -190,6 +201,7 @@ async def cmd_me(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         f"Name: **{name}**\n"
         f"UID: `{uid}`\n\n"
         f"Required work hours: {req_str} per day\n"
+        f"Lunch time: {lunch_str}\n"
         f"Remote days: {remote_str}"
     )
 
@@ -211,8 +223,9 @@ async def _send_month_view(
     rows = await month_rows(db, uid, year, month)
     month_name = date(year, month, 1).strftime("%B")
     user_req = await user_default_seconds(db, uid)
+    lunch = await user_lunch_seconds(db, uid)
 
-    chart_buf = render_month(rows, name, month_name, year, user_req)
+    chart_buf = render_month(rows, name, month_name, year, user_req, lunch)
     await update.message.reply_photo(photo=chart_buf)
 
     table = _month_table(rows, name, month_name, year, user_req)
@@ -457,6 +470,49 @@ async def cmd_setrequiredworktimeforaday(
     )
 
 
+async def cmd_setlunchtime(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    db: aiosqlite.Connection = ctx.bot_data["db"]
+    user = await get_user_by_telegram(db, update.effective_user.id)
+    if not user:
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
+        return
+
+    _, _name, uid = user
+    args = ctx.args or []
+
+    if not args:
+        lunch = await user_lunch_seconds(db, uid)
+        lh, lrem = divmod(lunch, 3600)
+        lm, ls = divmod(lrem, 60)
+        if lh:
+            lunch_str = f"{lh}h {lm}m" if ls == 0 else f"{lh}h {lm}m {ls}s"
+        else:
+            lunch_str = f"{lm}m" if ls == 0 else f"{lm}m {ls}s"
+        await update.message.reply_text(f"Current lunch time: {lunch_str}.")
+        return
+
+    hms = parse_time(args[0])
+    if hms is None:
+        await update.message.reply_text(
+            "Usage: /setlunchtime <HH:MM or HH:MM:SS>\n"
+            "Example: /setlunchtime 00:30"
+        )
+        return
+
+    t = datetime.strptime(hms, "%H:%M:%S").time()
+    seconds = t.hour * 3600 + t.minute * 60 + t.second
+    await set_user_lunch_seconds(db, uid, seconds, DEFAULT_REQUIRED_SECONDS)
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        lunch_str = f"{h}h {m}m" if s == 0 else f"{h}h {m}m {s}s"
+    else:
+        lunch_str = f"{m}m" if s == 0 else f"{m}m {s}s"
+    await update.message.reply_text(f"Lunch time set to {lunch_str}.")
+
+
 async def cmd_setremoteworkdays(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db: aiosqlite.Connection = ctx.bot_data["db"]
     user = await get_user_by_telegram(db, update.effective_user.id)
@@ -582,3 +638,4 @@ def register_handlers(app: Application) -> None:
     )
     app.add_handler(CommandHandler("setremoteday", cmd_setremoteday))
     app.add_handler(CommandHandler("unsetremoteday", cmd_unsetremoteday))
+    app.add_handler(CommandHandler("setlunchtime", cmd_setlunchtime))

@@ -12,7 +12,19 @@ def _q(path: str) -> str:
 
 async def init_db(db: aiosqlite.Connection) -> None:
     await db.executescript(_q("schema.sql"))
+    await _migrate_user_settings(db)
     await db.commit()
+
+
+async def _migrate_user_settings(db: aiosqlite.Connection) -> None:
+    """Add lunch_seconds column to existing user_settings tables."""
+    async with db.execute("PRAGMA table_info(user_settings)") as cur:
+        cols = {row[1] for row in await cur.fetchall()}
+    if "lunch_seconds" not in cols:
+        await db.execute(
+            "ALTER TABLE user_settings "
+            "ADD COLUMN lunch_seconds INTEGER NOT NULL DEFAULT 1800"
+        )
 
 
 async def get_user_by_telegram(db: aiosqlite.Connection, telegram_id: int):
@@ -192,5 +204,21 @@ async def set_user_required_seconds(db: aiosqlite.Connection, uid: str, seconds:
 
 async def get_user_required_seconds(db: aiosqlite.Connection, uid: str) -> int | None:
     async with db.execute(_q("user_settings/get.sql"), (uid,)) as cur:
+        row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def set_user_lunch_seconds(
+    db: aiosqlite.Connection, uid: str, seconds: int, default_required_seconds: int
+) -> None:
+    await db.execute(
+        _q("user_settings/set_lunch.sql"),
+        (uid, default_required_seconds, seconds),
+    )
+    await db.commit()
+
+
+async def get_user_lunch_seconds(db: aiosqlite.Connection, uid: str) -> int | None:
+    async with db.execute(_q("user_settings/get_lunch.sql"), (uid,)) as cur:
         row = await cur.fetchone()
     return row[0] if row else None

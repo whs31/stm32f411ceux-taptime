@@ -11,10 +11,12 @@ from .db import (
     get_remote_day_overrides_for_month,
     get_remote_workdays,
     get_required_hours_override,
+    get_user_lunch_seconds,
     get_user_required_seconds,
 )
 
 DEFAULT_REQUIRED_SECONDS = 8 * 3600 + 30 * 60  # 8h 30m
+DEFAULT_LUNCH_SECONDS = 30 * 60               # 30m
 
 WEEKDAY_ABBR: list[str] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 WEEKDAY_FROM_ABBR: dict[str, int] = {v.upper(): i for i, v in enumerate(WEEKDAY_ABBR)}
@@ -37,6 +39,12 @@ async def user_default_seconds(db: aiosqlite.Connection, uid: str) -> int:
     """Return the user's per-day required work seconds, falling back to the global default."""
     val = await get_user_required_seconds(db, uid)
     return val if val is not None else DEFAULT_REQUIRED_SECONDS
+
+
+async def user_lunch_seconds(db: aiosqlite.Connection, uid: str) -> int:
+    """Return the user's per-day lunch break seconds, falling back to the global default."""
+    val = await get_user_lunch_seconds(db, uid)
+    return val if val is not None else DEFAULT_LUNCH_SECONDS
 
 
 async def required_seconds_for_date(
@@ -98,6 +106,7 @@ async def month_rows(
     remote_day_dates = set(await get_remote_day_overrides_for_month(db, uid, year, month))
     day_off_dates = set(await get_day_offs_for_month(db, uid, year, month))
     user_req = await user_default_seconds(db, uid)
+    lunch = await user_lunch_seconds(db, uid)
 
     record_dict: dict[str, tuple[str | None, str | None]] = {
         row[0]: (row[1], row[2]) for row in records
@@ -131,6 +140,8 @@ async def month_rows(
                 bal: int | None = 0
             elif ci and co:
                 bal = seconds_worked(ci, co) - req
+            elif d < today and not ci and not co:
+                bal = -(req - lunch)
             elif d < today:
                 bal = -req
             else:
@@ -162,6 +173,8 @@ async def month_rows(
             bal = 0
         elif ci and co:
             bal = seconds_worked(ci, co) - req
+        elif d < today and not ci and not co:
+            bal = -(req - lunch)
         elif d < today:
             bal = -req
         else:

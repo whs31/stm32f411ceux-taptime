@@ -64,6 +64,7 @@ def render_month(
     month_name: str,
     year: int,
     user_req: int,
+    lunch: int = 0,
 ) -> BytesIO:
     """Bar chart: one bar per day, height = hours worked, colour = status."""
     N = len(rows)
@@ -74,21 +75,28 @@ def render_month(
     labels: list[str] = []
     heights: list[float] = []
     colors: list[str] = []
+    req_markers: list[float | None] = []
 
     req_h = user_req / 3600
+    lunch_h = lunch / 3600
 
     for r in rows:
         labels.append(f"{r.d.day}\n{r.weekday_abbr[0]}")
 
+        day_req = (r.required_seconds / 3600) if r.required_seconds else req_h
+
         if r.is_day_off:
-            heights.append(req_h)
+            heights.append(day_req)
             colors.append(_C["dayoff"])
+            req_markers.append(None)
         elif r.is_remote:
-            heights.append(req_h)
+            heights.append(day_req)
             colors.append(_C["remote"])
+            req_markers.append(None)
         elif r.is_weekend and r.check_in and r.check_out:
             heights.append(seconds_worked(r.check_in, r.check_out) / 3600)
             colors.append(_C["weekend"])
+            req_markers.append(None)
         elif r.check_in and r.check_out:
             worked_h = seconds_worked(r.check_in, r.check_out) / 3600
             heights.append(worked_h)
@@ -98,19 +106,31 @@ def render_month(
                 colors.append(_C["undertime"])
             else:
                 colors.append(_C["normal"])
+            req_markers.append(day_req)
         elif r.check_in:
             heights.append(0.15)          # in-progress placeholder
             colors.append(_C["normal"])
+            req_markers.append(day_req)
         else:
             heights.append(0.0)
             colors.append(_C["missing"])
+            # Missing past workday: effective required is reduced by lunch
+            req_markers.append(max(day_req - lunch_h, 0.0) if r.balance_seconds is not None else None)
 
     x = list(range(N))
     ax.bar(x, heights, color=colors, width=0.72, edgecolor="white", linewidth=0.5, zorder=3)
 
-    # Required-hours reference line
+    # Required-hours reference line (baseline, full at-work threshold)
     ax.axhline(y=req_h, color=_C["req"], linestyle="--", linewidth=1.5,
                label=f"Required ({req_h:.1f}h)", zorder=5)
+
+    # Per-day required markers — show the effective required for each day
+    # (drops by lunch for missing past workdays)
+    for xi, m in zip(x, req_markers):
+        if m is None or abs(m - req_h) < 1e-6:
+            continue
+        ax.hlines(y=m, xmin=xi - 0.36, xmax=xi + 0.36,
+                  color=_C["req"], linestyles=":", linewidth=1.2, zorder=5)
 
     # Axes
     ax.set_xticks(x)
