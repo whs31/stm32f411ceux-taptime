@@ -43,3 +43,9 @@ CREATE TABLE IF NOT EXISTS remote_day_overrides (
     date TEXT NOT NULL,
     PRIMARY KEY (uid, date)
 );
+
+CREATE TABLE IF NOT EXISTS non_remote_day_overrides (
+    uid  TEXT NOT NULL,
+    date TEXT NOT NULL,
+    PRIMARY KEY (uid, date)
+);

@@ -21,13 +21,19 @@ from .db import (
     set_required_hours_override,
     set_user_lunch_seconds,
     set_user_required_seconds,
+    today_record,
+    upsert_check_in,
+    upsert_check_out,
 )
 from .chart import render_month, render_year
 from .workhours import (
     DEFAULT_REQUIRED_SECONDS,
     WEEKDAY_ABBR,
     WEEKDAY_FROM_ABBR,
+    format_balance,
+    month_net_balance,
     month_rows,
+    required_seconds_for_date,
     seconds_worked,
     user_default_seconds,
     user_lunch_seconds,
@@ -623,6 +629,81 @@ async def cmd_unsetremoteday(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(f"Remote override removed for {d_obj.isoformat()}.")
 
 
+async def cmd_checkin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    db: aiosqlite.Connection = ctx.bot_data["db"]
+    user = await get_user_by_telegram(db, update.effective_user.id)
+    if not user:
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
+        return
+
+    _, name, uid = user
+    args = ctx.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /checkin <HH:MM[:SS]>\nExample: /checkin 09:00"
+        )
+        return
+
+    t = parse_time(args[0])
+    if t is None:
+        await update.message.reply_text("Invalid time format. Use HH:MM or HH:MM:SS")
+        return
+
+    dt = datetime.combine(date.today(), datetime.strptime(t, "%H:%M:%S").time())
+    await upsert_check_in(db, uid, dt)
+    await update.message.reply_text(f"Checked in at {t}.")
+
+
+async def cmd_checkout(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    db: aiosqlite.Connection = ctx.bot_data["db"]
+    user = await get_user_by_telegram(db, update.effective_user.id)
+    if not user:
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
+        return
+
+    _, name, uid = user
+    args = ctx.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /checkout <HH:MM[:SS]>\nExample: /checkout 17:30"
+        )
+        return
+
+    t = parse_time(args[0])
+    if t is None:
+        await update.message.reply_text("Invalid time format. Use HH:MM or HH:MM:SS")
+        return
+
+    today = date.today()
+    dt = datetime.combine(today, datetime.strptime(t, "%H:%M:%S").time())
+    ci_str = await upsert_check_out(db, uid, dt)
+    co_str = dt.strftime("%H:%M:%S")
+
+    if ci_str:
+        req = await required_seconds_for_date(db, uid, today)
+        if req is not None:
+            worked = seconds_worked(ci_str, co_str)
+            day_bal = format_balance(worked - req)
+        else:
+            day_bal = "non-workday"
+
+        month_bal = await month_net_balance(db, uid, today.year, today.month)
+        month_str = format_balance(month_bal)
+        month_name = today.strftime("%B")
+
+        await update.message.reply_text(
+            f"Checked out at {co_str}\n"
+            f"Today: {day_bal}\n"
+            f"{month_name}: {month_str}"
+        )
+    else:
+        await update.message.reply_text(f"Checked out at {co_str}.")
+
+
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("register", cmd_register))
     app.add_handler(CommandHandler("me", cmd_me))
@@ -638,4 +719,6 @@ def register_handlers(app: Application) -> None:
     )
     app.add_handler(CommandHandler("setremoteday", cmd_setremoteday))
     app.add_handler(CommandHandler("unsetremoteday", cmd_unsetremoteday))
+    app.add_handler(CommandHandler("checkin", cmd_checkin))
+    app.add_handler(CommandHandler("checkout", cmd_checkout))
     app.add_handler(CommandHandler("setlunchtime", cmd_setlunchtime))
