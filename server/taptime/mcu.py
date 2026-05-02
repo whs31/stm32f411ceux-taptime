@@ -124,7 +124,7 @@ async def handle_tap(request: web.Request) -> web.Response:
         )
     elif record and record[1] and record[2]:
         # Was checked out earlier today → re-check-in
-        await reopen_checkin(db, uid)
+        await reopen_checkin(db, uid, dt)
         log.info("Re-check-in: %s at %s", name, dt)
         await _notify_checkin(tg_app, telegram_id, name, record[1])
         return web.json_response({"status": "check_in", "name": name, "check_in": record[1]})

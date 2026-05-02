@@ -13,6 +13,8 @@ def _q(path: str) -> str:
 async def init_db(db: aiosqlite.Connection) -> None:
     await db.executescript(_q("schema.sql"))
     await _migrate_user_settings(db)
+    await _migrate_weekend_overrides(db)
+    await _migrate_tap_log(db)
     await db.commit()
 
 
@@ -25,6 +27,21 @@ async def _migrate_user_settings(db: aiosqlite.Connection) -> None:
             "ALTER TABLE user_settings "
             "ADD COLUMN lunch_seconds INTEGER NOT NULL DEFAULT 1800"
         )
+
+
+async def _migrate_weekend_overrides(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS weekend_overrides "
+        "(uid TEXT NOT NULL, date TEXT NOT NULL, PRIMARY KEY (uid, date))"
+    )
+
+
+async def _migrate_tap_log(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS tap_log "
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, uid TEXT NOT NULL, "
+        "date TEXT NOT NULL, time TEXT NOT NULL, event TEXT NOT NULL)"
+    )
 
 
 async def get_user_by_telegram(db: aiosqlite.Connection, telegram_id: int):
@@ -54,19 +71,18 @@ async def get_records(db: aiosqlite.Connection, uid: str, since: date):
 
 
 async def upsert_check_in(db: aiosqlite.Connection, uid: str, dt: datetime) -> None:
-    await db.execute(
-        _q("records/upsert_check_in.sql"),
-        (uid, dt.date().isoformat(), dt.strftime("%H:%M:%S")),
-    )
+    d = dt.date().isoformat()
+    t = dt.strftime("%H:%M:%S")
+    await db.execute(_q("records/upsert_check_in.sql"), (uid, d, t))
+    await db.execute(_q("tap_log/insert.sql"), (uid, d, t, "check_in"))
     await db.commit()
 
 
 async def upsert_check_out(db: aiosqlite.Connection, uid: str, dt: datetime) -> str | None:
     d = dt.date().isoformat()
-    await db.execute(
-        _q("records/upsert_check_out.sql"),
-        (uid, d, dt.strftime("%H:%M:%S")),
-    )
+    t = dt.strftime("%H:%M:%S")
+    await db.execute(_q("records/upsert_check_out.sql"), (uid, d, t))
+    await db.execute(_q("tap_log/insert.sql"), (uid, d, t, "check_out"))
     await db.commit()
     async with db.execute(_q("records/get_check_in.sql"), (uid, d)) as cur:
         row = await cur.fetchone()
@@ -87,9 +103,12 @@ async def today_record(db: aiosqlite.Connection, uid: str):
         return await cur.fetchone()
 
 
-async def reopen_checkin(db: aiosqlite.Connection, uid: str) -> None:
+async def reopen_checkin(db: aiosqlite.Connection, uid: str, dt: datetime) -> None:
     """Clear check_out so the user is marked checked-in again (preserves original check_in)."""
-    await db.execute(_q("records/reopen.sql"), (uid, date.today().isoformat()))
+    d = dt.date().isoformat()
+    t = dt.strftime("%H:%M:%S")
+    await db.execute(_q("records/reopen.sql"), (uid, d))
+    await db.execute(_q("tap_log/insert.sql"), (uid, d, t, "check_in"))
     await db.commit()
 
 
@@ -210,6 +229,41 @@ async def get_remote_day_overrides_for_month(
     ) as cur:
         rows = await cur.fetchall()
     return [r[0] for r in rows]
+
+
+async def add_weekend_override(db: aiosqlite.Connection, uid: str, d: str) -> None:
+    await db.execute(_q("weekend_overrides/add.sql"), (uid, d))
+    await db.commit()
+
+
+async def remove_weekend_override(db: aiosqlite.Connection, uid: str, d: str) -> None:
+    await db.execute(_q("weekend_overrides/delete.sql"), (uid, d))
+    await db.commit()
+
+
+async def get_weekend_overrides_for_month(
+    db: aiosqlite.Connection, uid: str, year: int, month: int
+) -> list[str]:
+    month_start = f"{year:04d}-{month:02d}-01"
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    month_end = f"{next_year:04d}-{next_month:02d}-01"
+    async with db.execute(
+        _q("weekend_overrides/get_for_month.sql"), (uid, month_start, month_end)
+    ) as cur:
+        rows = await cur.fetchall()
+    return [r[0] for r in rows]
+
+
+async def get_tap_log_for_month(
+    db: aiosqlite.Connection, uid: str, year: int, month: int
+):
+    month_start = f"{year:04d}-{month:02d}-01"
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    month_end = f"{next_year:04d}-{next_month:02d}-01"
+    async with db.execute(
+        _q("tap_log/get_for_month.sql"), (uid, month_start, month_end)
+    ) as cur:
+        return await cur.fetchall()
 
 
 async def set_user_required_seconds(db: aiosqlite.Connection, uid: str, seconds: int) -> None:

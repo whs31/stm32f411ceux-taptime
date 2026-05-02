@@ -49,3 +49,17 @@ CREATE TABLE IF NOT EXISTS non_remote_day_overrides (
     date TEXT NOT NULL,
     PRIMARY KEY (uid, date)
 );
+
+CREATE TABLE IF NOT EXISTS weekend_overrides (
+    uid  TEXT NOT NULL,
+    date TEXT NOT NULL,
+    PRIMARY KEY (uid, date)
+);
+
+CREATE TABLE IF NOT EXISTS tap_log (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid   TEXT NOT NULL,
+    date  TEXT NOT NULL,
+    time  TEXT NOT NULL,
+    event TEXT NOT NULL
+);

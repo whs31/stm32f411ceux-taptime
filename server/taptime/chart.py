@@ -1,12 +1,14 @@
 """Chart rendering for /time output (Pillow-free; uses matplotlib only)."""
 from __future__ import annotations
 
+from collections import defaultdict
 from io import BytesIO
 
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend — must be set before importing pyplot
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 
 from .workhours import DayRow, seconds_worked
 
@@ -152,6 +154,141 @@ def render_month(
     handles.append(plt.Line2D([0], [0], color=_C["req"], linestyle="--",
                                linewidth=1.5, label=f"Required ({req_h:.1f}h)"))
     ax.legend(handles=handles, loc="upper right", fontsize=8, framealpha=0.92)
+
+    fig.tight_layout()
+    return _save(fig)
+
+
+def _time_to_hours(t: str) -> float:
+    h, m, s = t.split(":")
+    return int(h) + int(m) / 60 + int(s) / 3600
+
+
+def _hours_to_hhmm(val: float, _pos=None) -> str:
+    hh = int(val)
+    mm = int(round((val - hh) * 60))
+    if mm == 60:
+        hh += 1
+        mm = 0
+    return f"{hh:02d}:{mm:02d}"
+
+
+def render_month_timeline(
+    rows: list[DayRow],
+    tap_log_rows: list[tuple[str, str, str]],
+    name: str,
+    month_name: str,
+    year: int,
+) -> BytesIO:
+    """Line chart: first CI and last CO per day; intermediate tap events as markers."""
+    day_log: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for date_str, time_str, event in tap_log_rows:
+        day_log[date_str].append((time_str, event))
+
+    N = len(rows)
+    labels = [f"{r.d.day}\n{r.weekday_abbr[0]}" for r in rows]
+
+    x_ci, y_ci = [], []
+    x_co, y_co = [], []
+    x_int_ci, y_int_ci = [], []
+    x_int_co, y_int_co = [], []
+
+    for i, r in enumerate(rows):
+        if not r.check_in:
+            continue
+        d_str = r.d.isoformat()
+        ci_h = _time_to_hours(r.check_in)
+        x_ci.append(i)
+        y_ci.append(ci_h)
+
+        if r.check_out:
+            co_h = _time_to_hours(r.check_out)
+            x_co.append(i)
+            y_co.append(co_h)
+
+        events = sorted(day_log.get(d_str, []))
+        for t_str, event in events:
+            if event == "check_in" and t_str != r.check_in:
+                x_int_ci.append(i)
+                y_int_ci.append(_time_to_hours(t_str))
+            elif event == "check_out" and r.check_out and t_str != r.check_out:
+                x_int_co.append(i)
+                y_int_co.append(_time_to_hours(t_str))
+
+    fig_w = max(8.0, N * 0.48 + 2.0)
+    fig, ax = plt.subplots(figsize=(fig_w, 5.0))
+    fig.patch.set_facecolor(_C["bg"])
+
+    # Per-day vertical segment from first CI to last CO
+    for i, r in enumerate(rows):
+        if r.check_in and r.check_out:
+            ax.plot(
+                [i, i],
+                [_time_to_hours(r.check_in), _time_to_hours(r.check_out)],
+                color=_C["axis"], linewidth=1.0, alpha=0.4, zorder=1,
+            )
+
+    if x_ci:
+        ax.plot(x_ci, y_ci, color=_C["normal"], marker="o", markersize=5,
+                linewidth=1.4, zorder=3, label="First check-in")
+    if x_co:
+        ax.plot(x_co, y_co, color=_C["overtime"], marker="o", markersize=5,
+                linewidth=1.4, zorder=3, label="Last check-out")
+    if x_int_ci:
+        ax.scatter(x_int_ci, y_int_ci, color=_C["normal"], marker="^", s=45,
+                   alpha=0.75, zorder=4, label="Interm. check-in")
+    if x_int_co:
+        ax.scatter(x_int_co, y_int_co, color=_C["overtime"], marker="v", s=45,
+                   alpha=0.75, zorder=4, label="Interm. check-out")
+
+    ax.set_xticks(list(range(N)))
+    ax.set_xticklabels(labels, fontsize=8)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(_hours_to_hhmm))
+    ax.yaxis.set_major_locator(mticker.MultipleLocator(1.0))
+    ax.set_ylabel("Time of day")
+    ax.set_title(f"{month_name} {year}  —  {name}  (tap timeline)",
+                 color=_C["text"], fontsize=13, fontweight="bold", pad=12)
+
+    all_y = y_ci + y_co + y_int_ci + y_int_co
+    if all_y:
+        y_min = max(0.0, min(all_y) - 1.0)
+        y_max = min(24.0, max(all_y) + 1.0)
+        ax.set_ylim(y_min, y_max)
+
+    _apply_style(ax)
+    ax.grid(axis="x", color=_C["grid"], linewidth=0.5, zorder=0)
+
+    handles = []
+    if x_ci:
+        handles.append(plt.Line2D([0], [0], color=_C["normal"], marker="o",
+                                  markersize=5, linewidth=1.4, label="First check-in"))
+    if x_co:
+        handles.append(plt.Line2D([0], [0], color=_C["overtime"], marker="o",
+                                  markersize=5, linewidth=1.4, label="Last check-out"))
+    if x_int_ci:
+        handles.append(plt.Line2D([0], [0], color=_C["normal"], marker="^",
+                                  markersize=6, linewidth=0, label="Interm. check-in"))
+    if x_int_co:
+        handles.append(plt.Line2D([0], [0], color=_C["overtime"], marker="v",
+                                  markersize=6, linewidth=0, label="Interm. check-out"))
+    if handles:
+        ax.legend(handles=handles, loc="upper right", fontsize=8, framealpha=0.92)
+
+    # Corner stats box
+    if y_ci:
+        min_ci = _hours_to_hhmm(min(y_ci))
+        max_ci = _hours_to_hhmm(max(y_ci))
+        lines = [f"CI:  earliest {min_ci}  latest {max_ci}"]
+        if y_co:
+            min_co = _hours_to_hhmm(min(y_co))
+            max_co = _hours_to_hhmm(max(y_co))
+            lines.append(f"CO:  earliest {min_co}  latest {max_co}")
+        ax.text(
+            0.02, 0.02, "\n".join(lines),
+            transform=ax.transAxes, fontsize=8, verticalalignment="bottom",
+            fontfamily="monospace",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.85),
+        )
 
     fig.tight_layout()
     return _save(fig)

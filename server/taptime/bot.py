@@ -7,15 +7,18 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from .db import (
     add_day_off,
     add_remote_day_override,
+    add_weekend_override,
     delete_record,
     delete_user,
     get_remote_workdays,
+    get_tap_log_for_month,
     get_user_by_telegram,
     get_user_by_uid,
     get_user_required_seconds,
     register_user,
     remove_day_off,
     remove_remote_day_override,
+    remove_weekend_override,
     set_record,
     set_remote_workdays,
     set_required_hours_override,
@@ -25,7 +28,7 @@ from .db import (
     upsert_check_in,
     upsert_check_out,
 )
-from .chart import render_month, render_year
+from .chart import render_month, render_month_timeline, render_year
 from .workhours import (
     DEFAULT_REQUIRED_SECONDS,
     WEEKDAY_ABBR,
@@ -233,6 +236,11 @@ async def _send_month_view(
 
     chart_buf = render_month(rows, name, month_name, year, user_req, lunch)
     await update.message.reply_photo(photo=chart_buf)
+
+    tap_log_rows = await get_tap_log_for_month(db, uid, year, month)
+    if any(r.check_in for r in rows):
+        timeline_buf = render_month_timeline(rows, tap_log_rows, name, month_name, year)
+        await update.message.reply_photo(photo=timeline_buf)
 
     table = _month_table(rows, name, month_name, year, user_req)
     await update.message.reply_text("```\n" + table + "\n```", parse_mode="Markdown")
@@ -704,6 +712,63 @@ async def cmd_checkout(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Checked out at {co_str}.")
 
 
+async def cmd_setweekend(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    db: aiosqlite.Connection = ctx.bot_data["db"]
+    user = await get_user_by_telegram(db, update.effective_user.id)
+    if not user:
+        await update.message.reply_text(
+            "You are not registered. Use /register <NAME> <UID>."
+        )
+        return
+
+    _, _name, uid = user
+    args = ctx.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /setweekend <DATE> [true|false]\n"
+            "  true  (default) — treat date as a non-workday weekend\n"
+            "  false           — treat date as a regular workday\n"
+            "Examples:\n"
+            "  /setweekend 2026-05-09\n"
+            "  /setweekend 2026-05-10 false"
+        )
+        return
+
+    d_obj = parse_date(args[0])
+    if d_obj is None:
+        await update.message.reply_text("Invalid date. Use YYYY-MM-DD or 'today'.")
+        return
+
+    is_weekend = True
+    if len(args) >= 2:
+        v = args[1].lower()
+        if v in ("false", "0", "no", "off"):
+            is_weekend = False
+        elif v not in ("true", "1", "yes", "on"):
+            await update.message.reply_text("Second argument must be true or false.")
+            return
+
+    d = d_obj.isoformat()
+    wd = d_obj.weekday()
+
+    if is_weekend:
+        await add_weekend_override(db, uid, d)
+        await update.message.reply_text(f"{d} marked as weekend.")
+    else:
+        await remove_weekend_override(db, uid, d)
+        if wd >= 5:
+            # For a natural Sat/Sun, add a work-hour override so it becomes a workday
+            user_req = await user_default_seconds(db, uid)
+            await set_required_hours_override(db, uid, d, user_req)
+            h, rem = divmod(user_req, 3600)
+            m = rem // 60
+            await update.message.reply_text(
+                f"{d} marked as workday (required: {h}h {m:02d}m)."
+            )
+        else:
+            await update.message.reply_text(f"{d} marked as regular workday.")
+
+
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("register", cmd_register))
     app.add_handler(CommandHandler("me", cmd_me))
@@ -722,3 +787,4 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("checkin", cmd_checkin))
     app.add_handler(CommandHandler("checkout", cmd_checkout))
     app.add_handler(CommandHandler("setlunchtime", cmd_setlunchtime))
+    app.add_handler(CommandHandler("setweekend", cmd_setweekend))

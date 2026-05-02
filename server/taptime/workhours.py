@@ -14,6 +14,7 @@ from .db import (
     get_required_hours_override,
     get_user_lunch_seconds,
     get_user_required_seconds,
+    get_weekend_overrides_for_month,
 )
 
 DEFAULT_REQUIRED_SECONDS = 8 * 3600 + 30 * 60  # 8h 30m
@@ -107,6 +108,7 @@ async def month_rows(
     remote_day_dates = set(await get_remote_day_overrides_for_month(db, uid, year, month))
     non_remote_day_dates = set(await get_non_remote_day_overrides_for_month(db, uid, year, month))
     day_off_dates = set(await get_day_offs_for_month(db, uid, year, month))
+    weekend_override_dates = set(await get_weekend_overrides_for_month(db, uid, year, month))
     user_req = await user_default_seconds(db, uid)
     lunch = await user_lunch_seconds(db, uid)
 
@@ -132,6 +134,13 @@ async def month_rows(
             rows.append(DayRow(
                 d=d, weekday_abbr=WEEKDAY_ABBR[wd], is_day_off=True,
                 check_in=ci, check_out=co, balance_seconds=0,
+            ))
+            continue
+
+        if d_str in weekend_override_dates:
+            rows.append(DayRow(
+                d=d, weekday_abbr=WEEKDAY_ABBR[wd], is_weekend=True,
+                check_in=ci, check_out=co, balance_seconds=None,
             ))
             continue
 
