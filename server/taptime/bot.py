@@ -660,7 +660,12 @@ async def cmd_checkin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     dt = datetime.combine(date.today(), datetime.strptime(t, "%H:%M:%S").time())
-    await upsert_check_in(db, uid, dt)
+    record = await today_record(db, uid)
+    if record and record[1] and record[2]:
+        # Already checked out today → reopen, preserving original check_in
+        await reopen_checkin(db, uid, dt)
+    else:
+        await upsert_check_in(db, uid, dt)
     await update.message.reply_text(f"Checked in at {t}.")
 
 
