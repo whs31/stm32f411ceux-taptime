@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 
-use crate::{Balance, DayFlags, Error, Event, LocalTime, Result, User};
+use crate::{Balance, DayFlags, Error, Event, LocalTime, Result};
 
 #[derive(Debug, Clone)]
 pub struct Day {
@@ -8,6 +8,7 @@ pub struct Day {
   pub events: Vec<Event>,
   pub flags: DayFlags,
   pub required_work_hours: chrono::Duration,
+  pub lunch_break_duration: chrono::Duration,
 }
 
 impl Day {
@@ -115,7 +116,7 @@ impl Day {
   /// Work hours are calculated by taking the difference between the **first** check-in and
   /// **last** check-out, subtracting the lunch break duration (taken from the user's settings)
   /// if applicable.
-  pub fn work_hours(&self, user: &User) -> Result<Option<chrono::Duration>> {
+  pub fn work_hours(&self) -> Result<Option<chrono::Duration>> {
     if self.is_remote() || self.is_weekend() {
       return Ok(None);
     }
@@ -125,8 +126,8 @@ impl Day {
       (Some(in_lt), Some(out_lt)) => (in_lt.to_naive_time()?, out_lt.to_naive_time()?),
     };
     let work_hours = check_out - check_in;
-    let lunch_break = if user.settings.lunch_break_duration > chrono::Duration::zero() {
-      user.settings.lunch_break_duration
+    let lunch_break = if self.lunch_break_duration() > chrono::Duration::zero() {
+      self.lunch_break_duration()
     } else {
       chrono::Duration::zero()
     };
@@ -139,10 +140,266 @@ impl Day {
   }
 
   #[inline]
-  pub fn balance(&self, user: &User) -> Result<Balance> {
+  pub fn lunch_break_duration(&self) -> chrono::Duration {
+    self.lunch_break_duration
+  }
+
+  #[inline]
+  pub fn balance(&self) -> Result<Balance> {
     Ok(Balance::calculate(
-      self.work_hours(user)?.unwrap_or(chrono::Duration::zero()),
-      user.settings.required_work_hours,
+      self.work_hours()?.unwrap_or(chrono::Duration::zero()),
+      self.required_work_hours(),
     ))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use chrono::NaiveDate;
+  use uuid::Uuid;
+
+  use super::*;
+  use crate::{Balance, Error, Event, User, UserSettings};
+
+  fn make_user() -> User {
+    User {
+      id: Uuid::new_v4(),
+      name: "Test".to_string(),
+      email: "test@example.com".to_string(),
+      organization: None,
+      time_zone: chrono_tz::UTC,
+      created_at: chrono::Utc::now(),
+      last_seen: None,
+      rfid_uid: None,
+      settings: UserSettings::default(),
+    }
+  }
+
+  fn date(y: i32, m: u32, d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(y, m, d).unwrap()
+  }
+
+  fn lt(h: u32, m: u32) -> LocalTime {
+    LocalTime::new(h, m, 0).unwrap()
+  }
+
+  // --- flag tests ---
+
+  #[test]
+  fn weekend_flag_roundtrip() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    assert!(!day.is_weekend());
+    day.set_weekend();
+    assert!(day.is_weekend());
+    day.clear_weekend();
+    assert!(!day.is_weekend());
+  }
+
+  #[test]
+  fn remote_flag_roundtrip() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    assert!(!day.is_remote());
+    day.set_remote();
+    assert!(day.is_remote());
+    day.clear_remote();
+    assert!(!day.is_remote());
+  }
+
+  #[test]
+  fn day_off_flag_roundtrip() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    assert!(!day.is_day_off());
+    day.set_day_off();
+    assert!(day.is_day_off());
+    day.clear_day_off();
+    assert!(!day.is_day_off());
+  }
+
+  #[test]
+  fn flags_are_independent() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.set_weekend();
+    day.set_remote();
+    assert!(day.is_weekend());
+    assert!(day.is_remote());
+    assert!(!day.is_day_off());
+    day.clear_weekend();
+    assert!(!day.is_weekend());
+    assert!(day.is_remote());
+  }
+
+  #[test]
+  fn first_check_in_on_empty_day_is_none() {
+    assert!(
+      make_user()
+        .new_day(date(2024, 1, 1))
+        .first_check_in()
+        .is_none()
+    );
+  }
+
+  #[test]
+  fn last_check_out_on_empty_day_is_none() {
+    assert!(
+      make_user()
+        .new_day(date(2024, 1, 1))
+        .last_check_out()
+        .is_none()
+    );
+  }
+
+  #[test]
+  fn first_check_in_returns_earliest_across_multiple_pairs() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(9, 0)).unwrap();
+    day.add_check_out(lt(12, 0)).unwrap();
+    day.add_check_in(lt(13, 0)).unwrap();
+    day.add_check_out(lt(17, 0)).unwrap();
+    assert_eq!(day.first_check_in().unwrap(), &lt(9, 0));
+  }
+
+  #[test]
+  fn last_check_out_returns_latest_across_multiple_pairs() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(9, 0)).unwrap();
+    day.add_check_out(lt(12, 0)).unwrap();
+    day.add_check_in(lt(13, 0)).unwrap();
+    day.add_check_out(lt(17, 0)).unwrap();
+    assert_eq!(day.last_check_out().unwrap(), &lt(17, 0));
+  }
+
+  #[test]
+  fn consecutive_check_ins_are_rejected() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(9, 0)).unwrap();
+    assert!(matches!(
+      day.add_check_in(lt(10, 0)),
+      Err(Error::InvalidCheckInOutSequence(_, _))
+    ));
+  }
+
+  #[test]
+  fn consecutive_check_outs_are_rejected() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(9, 0)).unwrap();
+    day.add_check_out(lt(17, 0)).unwrap();
+    assert!(matches!(
+      day.add_check_out(lt(18, 0)),
+      Err(Error::InvalidCheckInOutSequence(_, _))
+    ));
+  }
+
+  #[test]
+  fn add_event_delegates_to_correct_variant() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_event(Event::CheckIn(lt(9, 0))).unwrap();
+    day.add_event(Event::CheckOut(lt(17, 0))).unwrap();
+    assert_eq!(day.events.len(), 2);
+    assert!(day.events[0].is_check_in());
+    assert!(day.events[1].is_check_out());
+  }
+
+  // --- work_hours tests ---
+
+  #[test]
+  fn work_hours_with_no_events_is_none() {
+    assert!(
+      make_user()
+        .new_day(date(2024, 1, 1))
+        .work_hours()
+        .unwrap()
+        .is_none()
+    );
+  }
+
+  #[test]
+  fn work_hours_on_weekend_is_none() {
+    let mut day = make_user().new_day(date(2024, 1, 6));
+    day.add_check_in(lt(9, 0)).unwrap();
+    day.add_check_out(lt(17, 0)).unwrap();
+    day.set_weekend();
+    assert!(day.work_hours().unwrap().is_none());
+  }
+
+  #[test]
+  fn work_hours_on_remote_is_none() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(9, 0)).unwrap();
+    day.add_check_out(lt(17, 0)).unwrap();
+    day.set_remote();
+    assert!(day.work_hours().unwrap().is_none());
+  }
+
+  #[test]
+  fn work_hours_check_in_without_check_out_is_error() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(9, 0)).unwrap();
+    assert!(matches!(day.work_hours(), Err(Error::CheckOutNotFound)));
+  }
+
+  #[test]
+  fn work_hours_subtracts_lunch_break() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(9, 0)).unwrap();
+    day.add_check_out(lt(17, 0)).unwrap(); // 8h raw - 30min = 7h30min
+    assert_eq!(
+      day.work_hours().unwrap().unwrap(),
+      chrono::Duration::minutes(450)
+    );
+  }
+
+  #[test]
+  fn work_hours_uses_first_check_in_and_last_check_out() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(8, 0)).unwrap();
+    day.add_check_out(lt(12, 0)).unwrap();
+    day.add_check_in(lt(13, 0)).unwrap();
+    day.add_check_out(lt(18, 0)).unwrap(); // span 8:00-18:00 = 10h - 30min = 9h30min
+    assert_eq!(
+      day.work_hours().unwrap().unwrap(),
+      chrono::Duration::minutes(570)
+    );
+  }
+
+  // --- balance tests ---
+
+  #[test]
+  fn balance_overtime() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(8, 0)).unwrap();
+    day.add_check_out(lt(17, 0)).unwrap(); // 9h - 30min = 8h30min => +30min
+    assert_eq!(
+      day.balance().unwrap(),
+      Balance::Overtime(chrono::Duration::minutes(30))
+    );
+  }
+
+  #[test]
+  fn balance_undertime() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(9, 0)).unwrap();
+    day.add_check_out(lt(16, 0)).unwrap(); // 7h - 30min = 6h30min => -1h30min
+    assert_eq!(
+      day.balance().unwrap(),
+      Balance::UnderTime(chrono::Duration::minutes(90))
+    );
+  }
+
+  #[test]
+  fn balance_exact() {
+    let mut day = make_user().new_day(date(2024, 1, 1));
+    day.add_check_in(lt(8, 0)).unwrap();
+    day.add_check_out(lt(16, 30)).unwrap(); // 8h30min - 30min = 8h exact
+    assert_eq!(day.balance().unwrap(), Balance::Exact);
+  }
+
+  #[test]
+  fn balance_weekend_with_no_events_is_full_undertime() {
+    let mut day = make_user().new_day(date(2024, 1, 6));
+    day.set_weekend(); // work_hours => None => 0h worked
+    assert_eq!(
+      day.balance().unwrap(),
+      Balance::UnderTime(chrono::Duration::hours(8))
+    );
   }
 }

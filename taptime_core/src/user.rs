@@ -1,4 +1,6 @@
-use crate::Uid;
+use chrono::{Datelike, NaiveDate};
+
+use crate::{Day, DayFlags, Uid};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct User {
@@ -44,4 +46,22 @@ impl Default for UserSettings {
   }
 }
 
-impl User {}
+impl User {
+  pub fn new_day(&self, date: NaiveDate) -> Day {
+    let weekday = date.weekday();
+    let mut flags = DayFlags::empty();
+    if self.settings.weekends.contains(&weekday) {
+      flags.insert(DayFlags::WEEKEND);
+    }
+    if self.settings.remote_days.contains(&weekday) {
+      flags.insert(DayFlags::REMOTE);
+    }
+    Day {
+      date,
+      events: vec![],
+      flags,
+      required_work_hours: self.settings.required_work_hours,
+      lunch_break_duration: self.settings.lunch_break_duration,
+    }
+  }
+}
