@@ -1,0 +1,15 @@
+edition = "2024";
+
+package com.whs31.taptime;
+
+import "google/protobuf/cpp_features.proto";
+
+option features.utf8_validation = VERIFY;
+option features.enforce_naming_style = STYLE2024;
+option features.default_symbol_visibility = EXPORT_ALL;
+option features.(pb.cpp).string_type = STRING;
+
+message Uuid {
+  fixed64 most_significant_bits = 1 [features.field_presence = IMPLICIT];
+  fixed64 least_significant_bits = 2 [features.field_presence = IMPLICIT];
+}

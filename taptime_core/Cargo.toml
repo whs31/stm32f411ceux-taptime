@@ -3,6 +3,9 @@ name = "taptime_core"
 version = "1.0.0"
 edition = "2024"
 
+[features]
+vendored-protobuf = ["protobuf-src"]
+
 [dependencies]
 thiserror = "2"
 bitflags = { version = "2", features = ["serde"] }
@@ -20,3 +23,4 @@ prost-types = { version = "0.14", features = ["chrono"] }
 
 [build-dependencies]
 prost-build = "0.14"
+protobuf-src = { version = "2", optional = true }
