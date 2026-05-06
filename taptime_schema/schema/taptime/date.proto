@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package com.whs31.taptime;
+
+message Date {
+  int32 days_since_epoch = 1;
+}
+

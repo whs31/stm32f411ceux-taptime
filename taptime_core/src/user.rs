@@ -1,6 +1,6 @@
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, TimeZone};
 
-use crate::{Day, DayFlags, Uid};
+use crate::{Day, DayFlags, Error, Uid};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct User {
@@ -19,7 +19,7 @@ pub struct User {
 
 #[derive(Debug, Clone)]
 pub struct UserCredentials {
-  pub user_id: uuid::Uuid,
+  pub id: uuid::Uuid,
   pub email: String,
   pub password_hash: String,
 }
@@ -62,6 +62,147 @@ impl User {
       flags,
       required_work_hours: self.settings.required_work_hours,
       lunch_break_duration: self.settings.lunch_break_duration,
+    }
+  }
+}
+
+impl TryFrom<&taptime_schema::user::Settings> for UserSettings {
+  type Error = taptime_schema::Error;
+
+  fn try_from(value: &taptime_schema::user::Settings) -> Result<Self, Self::Error> {
+    let required_work_hours: chrono::Duration = value
+      .required_work_hours
+      .map(|d| chrono::Duration::new(d.seconds, d.nanos as u32).unwrap_or_default())
+      .ok_or(taptime_schema::Error::MissingField("required_work_hours"))?;
+    let lunch_break_duration: chrono::Duration = value
+      .lunch_break_duration
+      .map(|d| chrono::Duration::new(d.seconds, d.nanos as u32).unwrap_or_default())
+      .ok_or(taptime_schema::Error::MissingField("lunch_break_duration"))?;
+    Ok(Self {
+      required_work_hours,
+      lunch_break_duration,
+      weekends: value
+        .weekends()
+        .map(|w| w.try_into())
+        .collect::<Result<_, _>>()?,
+      remote_days: value
+        .remote_days()
+        .map(|w| w.try_into())
+        .collect::<Result<_, _>>()?,
+    })
+  }
+}
+
+impl From<&UserSettings> for taptime_schema::user::Settings {
+  fn from(value: &UserSettings) -> Self {
+    Self {
+      required_work_hours: Some(value.required_work_hours.into()),
+      lunch_break_duration: Some(value.lunch_break_duration.into()),
+      weekends: value
+        .weekends
+        .iter()
+        .map(|w| taptime_schema::Weekday::from(*w).into())
+        .collect(),
+      remote_days: value
+        .remote_days
+        .iter()
+        .map(|w| taptime_schema::Weekday::from(*w).into())
+        .collect(),
+    }
+  }
+}
+
+impl From<UserSettings> for taptime_schema::user::Settings {
+  fn from(value: UserSettings) -> Self {
+    Self::from(&value)
+  }
+}
+
+impl TryFrom<&taptime_schema::user::Credentials> for UserCredentials {
+  type Error = taptime_schema::Error;
+
+  fn try_from(value: &taptime_schema::user::Credentials) -> Result<Self, Self::Error> {
+    Ok(Self {
+      id: value
+        .id
+        .ok_or(taptime_schema::Error::MissingField("id"))?
+        .into(),
+      email: value.email.clone(),
+      password_hash: value.password_hash.clone(),
+    })
+  }
+}
+
+impl From<UserCredentials> for taptime_schema::user::Credentials {
+  fn from(value: UserCredentials) -> Self {
+    Self {
+      id: Some(value.id.into()),
+      email: value.email,
+      password_hash: value.password_hash,
+    }
+  }
+}
+
+impl TryFrom<&taptime_schema::User> for User {
+  type Error = Error;
+
+  fn try_from(value: &taptime_schema::User) -> Result<Self, Self::Error> {
+    Ok(Self {
+      id: value
+        .id
+        .ok_or(taptime_schema::Error::MissingField("id"))?
+        .into(),
+      name: value.name.clone(),
+      email: value.email.clone(),
+      organization: value.organization.clone(),
+      time_zone: value
+        .time_zone
+        .clone()
+        .ok_or(taptime_schema::Error::MissingField("time_zone"))?
+        .try_into()?,
+      created_at: value
+        .created_at
+        .map(|ts| {
+          chrono::Utc
+            .timestamp_opt(ts.seconds, ts.nanos as u32)
+            .unwrap()
+        })
+        .unwrap_or_default(),
+      last_seen: value.last_seen.map(|ts| {
+        chrono::Utc
+          .timestamp_opt(ts.seconds, ts.nanos as u32)
+          .unwrap()
+      }),
+      rfid_uid: value
+        .rfid_uid
+        .as_ref()
+        .map(|uid| uid.clone().try_into())
+        .transpose()?,
+      settings: value
+        .settings
+        .as_ref()
+        .ok_or(taptime_schema::Error::MissingField("settings"))?
+        .try_into()?,
+    })
+  }
+}
+
+impl From<&User> for taptime_schema::User {
+  fn from(value: &User) -> Self {
+    let serialize_ts = |ts: &chrono::DateTime<chrono::Utc>| prost_types::Timestamp {
+      seconds: ts.timestamp(),
+      nanos: ts.timestamp_subsec_nanos() as i32,
+    };
+    Self {
+      id: Some(value.id.into()),
+      name: value.name.clone(),
+      email: value.email.clone(),
+      organization: value.organization.clone(),
+      time_zone: Some(value.time_zone.into()),
+      created_at: Some(serialize_ts(&value.created_at)),
+      last_seen: value.last_seen.map(|ts| serialize_ts(&ts)),
+      rfid_uid: value.rfid_uid.as_ref().map(|uid| uid.clone().into()),
+      settings: Some(value.settings.clone().into()),
     }
   }
 }

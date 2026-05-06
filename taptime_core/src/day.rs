@@ -153,6 +153,53 @@ impl Day {
   }
 }
 
+impl TryFrom<&taptime_schema::Day> for Day {
+  type Error = Error;
+
+  fn try_from(value: &taptime_schema::Day) -> std::result::Result<Self, Self::Error> {
+    let date: NaiveDate = value
+      .date
+      .ok_or(Error::Schema(taptime_schema::Error::MissingField("date")))?
+      .into();
+    let events = value
+      .events
+      .iter()
+      .map(|e| Event::try_from(e).map_err(Error::Schema))
+      .collect::<Result<_>>()?;
+    let required_work_hours: chrono::Duration = value
+      .required_work_hours
+      .map(|d| chrono::Duration::new(d.seconds, d.nanos as u32).unwrap_or_default())
+      .ok_or(Error::Schema(taptime_schema::Error::MissingField(
+        "required_work_hours",
+      )))?;
+    let lunch_break_duration: chrono::Duration = value
+      .lunch_break_duration
+      .map(|d| chrono::Duration::new(d.seconds, d.nanos as u32).unwrap_or_default())
+      .ok_or(Error::Schema(taptime_schema::Error::MissingField(
+        "lunch_break_duration",
+      )))?;
+    Ok(Self {
+      date,
+      events,
+      flags: value.flags.into(),
+      required_work_hours,
+      lunch_break_duration,
+    })
+  }
+}
+
+impl From<&Day> for taptime_schema::Day {
+  fn from(day: &Day) -> Self {
+    taptime_schema::Day {
+      date: Some(day.date.into()),
+      events: day.events.iter().map(|e| e.into()).collect(),
+      flags: day.flags.into(),
+      required_work_hours: Some(day.required_work_hours.into()),
+      lunch_break_duration: Some(day.lunch_break_duration.into()),
+    }
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use chrono::NaiveDate;
@@ -182,9 +229,7 @@ mod tests {
   fn lt(h: u32, m: u32) -> LocalTime {
     LocalTime::new(h, m, 0).unwrap()
   }
-
-  // --- flag tests ---
-
+  
   #[test]
   fn weekend_flag_roundtrip() {
     let mut day = make_user().new_day(date(2024, 1, 1));
@@ -360,8 +405,6 @@ mod tests {
       chrono::Duration::minutes(570)
     );
   }
-
-  // --- balance tests ---
 
   #[test]
   fn balance_overtime() {

@@ -37,3 +37,33 @@ impl LocalTime {
     }
   }
 }
+
+impl TryFrom<&taptime_schema::LocalTime> for LocalTime {
+  type Error = Error;
+  fn try_from(value: &taptime_schema::LocalTime) -> Result<Self> {
+    Self::new(value.hour, value.minute, value.second)
+  }
+}
+
+impl TryFrom<taptime_schema::LocalTime> for LocalTime {
+  type Error = Error;
+  fn try_from(value: taptime_schema::LocalTime) -> Result<Self> {
+    Self::try_from(&value)
+  }
+}
+
+impl From<&LocalTime> for taptime_schema::LocalTime {
+  fn from(value: &LocalTime) -> Self {
+    Self {
+      hour: value.hour,
+      minute: value.minute,
+      second: value.second,
+    }
+  }
+}
+
+impl From<LocalTime> for taptime_schema::LocalTime {
+  fn from(value: LocalTime) -> Self {
+    Self::from(&value)
+  }
+}

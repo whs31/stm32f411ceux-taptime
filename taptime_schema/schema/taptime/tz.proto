@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package com.whs31.taptime;
+
+message Tz {
+  // The IANA Time Zone identifier (e.g., "Europe/Berlin")
+  string time_zone = 1;
+}

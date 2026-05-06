@@ -655,10 +655,14 @@ dependencies = [
 name = "taptime_schema"
 version = "1.0.0"
 dependencies = [
+ "chrono",
+ "chrono-tz",
  "prost",
  "prost-types",
+ "thiserror",
  "tonic-build",
  "tonic-prost-build",
+ "uuid",
 ]
 
 [[package]]

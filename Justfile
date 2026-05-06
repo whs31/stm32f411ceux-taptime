@@ -7,3 +7,13 @@ default:
 [working-directory("taptime_schema")]
 generate-ts:
     @cargo test --features=serde,grpc,client,server,typescript
+
+[working-directory("taptime_schema")]
+test-schema:
+    @cargo test --features=grpc,client,server
+
+[working-directory("taptime_core")]
+test-core:
+    @cargo test
+
+test: test-schema test-core

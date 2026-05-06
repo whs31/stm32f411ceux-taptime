@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package com.whs31.taptime;
+
+message Uid {
+  /// RFID identifier
+  ///
+  /// Either 4, 7 or 10 bytes
+  bytes value = 1;
+}

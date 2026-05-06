@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package com.whs31.taptime;
+
+message LocalTime {
+  uint32 hour = 1;
+  uint32 minute = 2;
+  uint32 second = 3;
+}

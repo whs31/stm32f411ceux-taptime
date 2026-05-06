@@ -19,6 +19,9 @@ pub enum Error {
 
   #[error("found check-in without subsequent check-out")]
   CheckOutNotFound,
+
+  #[error(transparent)]
+  Schema(#[from] taptime_schema::Error),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

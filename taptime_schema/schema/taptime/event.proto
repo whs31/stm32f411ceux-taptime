@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+import public "taptime/local_time.proto";
+
+package com.whs31.taptime;
+
+message Event {
+  oneof event_type {
+    LocalTime check_in = 1;
+    LocalTime check_out = 2;
+  }
+}

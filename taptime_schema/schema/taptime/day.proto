@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+import public "google/protobuf/duration.proto";
+import public "taptime/event.proto";
+import public "taptime/date.proto";
+
+package com.whs31.taptime;
+
+enum DayFlag {
+  DAY_FLAG_NONE = 0;
+  DAY_FLAG_WEEKEND = 1;
+  DAY_FLAG_DAY_OFF = 2;
+  DAY_FLAG_REMOTE = 4;
+}
+
+message Day {
+  Date date = 1;
+  repeated Event events = 2;
+  uint32 flags = 3;
+  google.protobuf.Duration required_work_hours = 4;
+  google.protobuf.Duration lunch_break_duration = 5;
+}

@@ -42,7 +42,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   }
   b.compile_protos(
     &[
+      "schema/taptime/date.proto",
+      "schema/taptime/day.proto",
+      "schema/taptime/event.proto",
+      "schema/taptime/local_time.proto",
+      "schema/taptime/tz.proto",
+      "schema/taptime/uid.proto",
+      "schema/taptime/user.proto",
       "schema/taptime/uuid.proto",
+      "schema/taptime/weekday.proto",
       // #[cfg(feature = "grpc")]
       // "share/proto/quasar/relay/services/license.proto",
     ],

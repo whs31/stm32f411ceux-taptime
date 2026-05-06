@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+import public "google/protobuf/timestamp.proto";
+import public "google/protobuf/duration.proto";
+import public "taptime/tz.proto";
+import public "taptime/uid.proto";
+import public "taptime/uuid.proto";
+import public "taptime/weekday.proto";
+
+package com.whs31.taptime;
+
+message User {
+  message Settings {
+    google.protobuf.Duration required_work_hours = 1;
+    google.protobuf.Duration lunch_break_duration = 2;
+    repeated Weekday weekends = 3;
+    repeated Weekday remote_days = 4;
+  }
+
+  message Credentials {
+    Uuid id = 1;
+    string email = 2;
+    string password_hash = 3;
+  }
+
+  Uuid id = 1;
+  string name = 2;
+  string email = 3;
+  optional string organization = 4;
+  Tz time_zone = 5;
+  google.protobuf.Timestamp created_at = 6;
+  optional google.protobuf.Timestamp last_seen = 7;
+  optional Uid rfid_uid = 8;
+  Settings settings = 9;
+}

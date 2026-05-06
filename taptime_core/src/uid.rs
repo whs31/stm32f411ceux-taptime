@@ -106,6 +106,52 @@ impl<'de> serde::Deserialize<'de> for Uid {
   }
 }
 
+impl TryFrom<&taptime_schema::Uid> for Uid {
+  type Error = Error;
+  fn try_from(value: &taptime_schema::Uid) -> Result<Self> {
+    let bytes = value.value.as_slice();
+    match bytes.len() {
+      4 => {
+        let mut arr = [0u8; 4];
+        arr.copy_from_slice(bytes);
+        Ok(Self::Single(GenericUid::new(arr)))
+      }
+      7 => {
+        let mut arr = [0u8; 7];
+        arr.copy_from_slice(bytes);
+        Ok(Self::Double(GenericUid::new(arr)))
+      }
+      10 => {
+        let mut arr = [0u8; 10];
+        arr.copy_from_slice(bytes);
+        Ok(Self::Triple(GenericUid::new(arr)))
+      }
+      len => Err(Error::InvalidUidLength(len)),
+    }
+  }
+}
+
+impl TryFrom<taptime_schema::Uid> for Uid {
+  type Error = Error;
+  fn try_from(value: taptime_schema::Uid) -> Result<Self> {
+    Self::try_from(&value)
+  }
+}
+
+impl From<&Uid> for taptime_schema::Uid {
+  fn from(value: &Uid) -> Self {
+    taptime_schema::Uid {
+      value: value.as_bytes().to_vec(),
+    }
+  }
+}
+
+impl From<Uid> for taptime_schema::Uid {
+  fn from(value: Uid) -> Self {
+    Self::from(&value)
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
