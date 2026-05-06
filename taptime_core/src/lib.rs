@@ -8,8 +8,6 @@ mod store;
 mod uid;
 mod user;
 
-include!(concat!(env!("OUT_DIR"), "/_includes.rs"));
-
 pub use self::{
   balance::Balance,
   day::Day,

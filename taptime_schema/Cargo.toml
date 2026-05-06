@@ -1,0 +1,31 @@
+[package]
+name = "taptime_schema"
+version = "1.0.0"
+edition = "2024"
+keywords = ["protocol", "protobuf"]
+
+[features]
+default = []
+serde = ["dep:serde", "wkt"]
+grpc = ["dep:tonic", "dep:tonic-prost"]
+client = ["grpc"]
+server = ["grpc"]
+typescript = ["dep:ts-rs", "dep:swc_common", "wkt"]
+legacy = []
+wkt = []
+vendored-protobuf = ["protobuf-src"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+
+prost = { version = "0.14", features = ["default"] }
+prost-types = { version = "0.14", features = ["chrono"] }
+tonic = { version = "0.14", optional = true }
+tonic-prost = { version = "0.14", optional = true }
+ts-rs = { version = "12", features = ["serde-compat", "uuid-impl", "format"], optional = true }
+swc_common = { version = ">=18", optional = true }
+
+[build-dependencies]
+tonic-build = "0.14"
+tonic-prost-build = "0.14"
+protobuf-src = {  version = "2", optional = true }
