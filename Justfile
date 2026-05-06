@@ -17,3 +17,5 @@ test-core:
     @cargo test
 
 test: test-schema test-core
+
+mod web 'taptime_web'
