@@ -1,6 +1,8 @@
 <script lang="ts">
   import * as Card from "$lib/components/ui/card/index.js";
   import * as Stepper from "$lib/components/ui/stepper";
+  import * as Alert from "$lib/components/ui/alert/index.js";
+  import { CircleAlert } from "@lucide/svelte";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
@@ -131,20 +133,21 @@
           <Stepper.Separator />
         </Stepper.Item>
         <Stepper.Item id="schedule">
-          <Stepper.Trigger>
+          <Stepper.Trigger disabled={!step1Valid}>
             <Stepper.Indicator>2</Stepper.Indicator>
             <Stepper.Description>Schedule</Stepper.Description>
           </Stepper.Trigger>
           <Stepper.Separator />
         </Stepper.Item>
         <Stepper.Item id="profile">
-          <Stepper.Trigger>
+          <Stepper.Trigger disabled={!step1Valid || !step2Valid}>
             <Stepper.Indicator>3</Stepper.Indicator>
             <Stepper.Description>Profile</Stepper.Description>
           </Stepper.Trigger>
         </Stepper.Item>
       </Stepper.Nav>
 
+      <div class="min-h-[420px]">
       <!-- Step 1: Credentials -->
       {#if step === 1}
         <div class="flex flex-col gap-4 pt-2">
@@ -340,10 +343,16 @@
               </p>
             {/if}
           </div>
-          {#if error}
-            <p class="text-destructive text-sm">{error}</p>
-          {/if}
         </div>
+      {/if}
+      </div>
+
+      {#if error}
+        <Alert.Root variant="destructive">
+          <CircleAlert />
+          <Alert.Title>Registration failed</Alert.Title>
+          <Alert.Description>{error}</Alert.Description>
+        </Alert.Root>
       {/if}
 
       <!-- Navigation -->
