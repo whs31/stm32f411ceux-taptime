@@ -118,7 +118,7 @@ impl Day {
   /// **last** check-out, subtracting the lunch break duration (taken from the user's settings)
   /// if applicable.
   pub fn work_hours(&self) -> Result<Option<chrono::Duration>> {
-    if self.is_weekend() {
+    if self.is_day_off() {
       return Ok(None);
     }
     if self.is_remote() {

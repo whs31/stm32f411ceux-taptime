@@ -9,7 +9,6 @@ service AuthService {
   rpc RegisterUser(RegisterUserRequest) returns (AuthResponse);
   rpc Login(LoginRequest) returns (AuthResponse);
   rpc GetUser(google.protobuf.Empty) returns (User);
-  rpc Logout(google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 
 message RegisterUserRequest {

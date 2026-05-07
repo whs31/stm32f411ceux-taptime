@@ -27,8 +27,4 @@ impl AuthService for AuthServiceImpl {
   async fn get_user(self: Arc<Self>, request: Request<()>) -> Result<Response<User>, Status> {
     todo!()
   }
-
-  async fn logout(self: Arc<Self>, request: Request<()>) -> Result<Response<()>, Status> {
-    todo!()
-  }
 }

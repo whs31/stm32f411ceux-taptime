@@ -1,13 +1,29 @@
 syntax = "proto3";
 
 import public "google/protobuf/empty.proto";
+import public "taptime/balance.proto";
 import public "taptime/date.proto";
 import public "taptime/day.proto";
+import public "taptime/local_time.proto";
 import public "taptime/uuid.proto";
-import public "taptime/balance.proto";
 
 package com.whs31.taptime.services;
 
 service StoreService {
   rpc GetDay(Date) returns (Day);
+  rpc GetWorkHours(Date) returns (google.protobuf.Duration);
+  rpc GetBalance(Date) returns (Balance);
+  rpc SetFlag(SetFlagRequest) returns (google.protobuf.Empty);
+  rpc AddCheckIn(EventRequest) returns (google.protobuf.Empty);
+  rpc AddCheckOut(EventRequest) returns (google.protobuf.Empty);
+}
+
+message SetFlagRequest {
+  Date date = 1;
+  DayFlag flag = 2;
+}
+
+message EventRequest {
+  Date date = 1;
+  LocalTime time = 2;
 }
