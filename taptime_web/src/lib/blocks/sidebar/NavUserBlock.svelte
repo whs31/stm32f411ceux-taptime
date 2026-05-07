@@ -41,7 +41,7 @@
           {#snippet child({ props })}
             <Sidebar.MenuButton
               {...props}
-              size="lg"
+              size="xl"
               class="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Avatar.Root class="size-8 rounded-lg grayscale">
@@ -52,6 +52,11 @@
                 <span class="text-muted-foreground truncate text-xs">
                   {userStore.user.email}
                 </span>
+                {#if userStore.user.organization}
+                  <span class="text-muted-foreground truncate text-xs">
+                    {userStore.user.organization}
+                  </span>
+                {/if}
               </div>
               <EllipsisVerticalIcon class="ms-auto size-4" />
             </Sidebar.MenuButton>
