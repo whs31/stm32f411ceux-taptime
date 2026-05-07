@@ -43,9 +43,15 @@ async fn main() -> Result<()> {
   let auth_service = services::AuthServiceImpl::new(pool, args.jwt_secret);
   let svc = taptime_schema::services::auth_service_server::AuthServiceServer::new(auth_service);
 
+  let cors = tower_http::cors::CorsLayer::new()
+    .allow_origin(tower_http::cors::Any)
+    .allow_headers(tower_http::cors::Any)
+    .allow_methods(tower_http::cors::Any);
+
   tracing::info!("server listening on {}", args.address);
   tonic::transport::Server::builder()
     .accept_http1(true)
+    .layer(cors)
     .layer(tonic_web::GrpcWebLayer::new())
     .add_service(svc)
     .serve(args.address)
