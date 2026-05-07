@@ -45,7 +45,13 @@ async fn main() -> Result<()> {
 
   let cors = tower_http::cors::CorsLayer::new()
     .allow_origin(tower_http::cors::Any)
-    .allow_headers(tower_http::cors::Any)
+    .allow_headers([
+      http::header::AUTHORIZATION,
+      http::header::CONTENT_TYPE,
+      http::header::HeaderName::from_static("x-grpc-web"),
+      http::header::HeaderName::from_static("x-user-agent"),
+      http::header::HeaderName::from_static("grpc-timeout"),
+    ])
     .allow_methods(tower_http::cors::Any);
 
   tracing::info!("server listening on {}", args.address);
