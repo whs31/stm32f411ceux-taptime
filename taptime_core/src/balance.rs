@@ -121,6 +121,52 @@ impl Sub<chrono::Duration> for Balance {
   }
 }
 
+impl TryFrom<&taptime_schema::Balance> for Balance {
+  type Error = taptime_schema::Error;
+
+  fn try_from(value: &taptime_schema::Balance) -> Result<Self, taptime_schema::Error> {
+    match value.balance_type {
+      None => Err(taptime_schema::Error::MissingField("balance_type")),
+      Some(b) => match b {
+        taptime_schema::balance::BalanceType::Overtime(dur) => Ok(Self::Overtime(
+          chrono::Duration::new(dur.seconds, dur.nanos as u32).unwrap_or_default(),
+        )),
+        taptime_schema::balance::BalanceType::Exact(_) => Ok(Self::Exact),
+        taptime_schema::balance::BalanceType::UnderTime(dur) => Ok(Self::UnderTime(
+          chrono::Duration::new(dur.seconds, dur.nanos as u32).unwrap_or_default(),
+        )),
+      },
+    }
+  }
+}
+
+impl TryFrom<taptime_schema::Balance> for Balance {
+  type Error = taptime_schema::Error;
+
+  fn try_from(value: taptime_schema::Balance) -> Result<Self, taptime_schema::Error> {
+    Self::try_from(&value)
+  }
+}
+
+impl From<&Balance> for taptime_schema::Balance {
+  fn from(value: &Balance) -> Self {
+    let balance_type = match value {
+      Balance::Overtime(dur) => taptime_schema::balance::BalanceType::Overtime((*dur).into()),
+      Balance::Exact => taptime_schema::balance::BalanceType::Exact(Default::default()),
+      Balance::UnderTime(dur) => taptime_schema::balance::BalanceType::UnderTime((*dur).into()),
+    };
+    Self {
+      balance_type: Some(balance_type),
+    }
+  }
+}
+
+impl From<Balance> for taptime_schema::Balance {
+  fn from(value: Balance) -> Self {
+    Self::from(&value)
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use chrono::Duration;

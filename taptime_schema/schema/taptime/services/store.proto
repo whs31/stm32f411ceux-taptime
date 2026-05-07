@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+import public "google/protobuf/empty.proto";
+import public "taptime/date.proto";
+import public "taptime/day.proto";
+import public "taptime/uuid.proto";
+import public "taptime/balance.proto";
+
+package com.whs31.taptime.services;
+
+service StoreService {
+  rpc GetDay(Date) returns (Day);
+}

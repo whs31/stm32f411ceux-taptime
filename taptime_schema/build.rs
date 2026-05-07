@@ -42,6 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   }
   b.compile_protos(
     &[
+      "schema/taptime/balance.proto",
       "schema/taptime/date.proto",
       "schema/taptime/day.proto",
       "schema/taptime/event.proto",

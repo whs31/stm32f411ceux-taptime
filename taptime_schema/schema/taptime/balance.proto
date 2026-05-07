@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+import public "google/protobuf/empty.proto";
+import public "google/protobuf/duration.proto";
+
+package com.whs31.taptime;
+
+message Balance {
+  oneof balance_type {
+    google.protobuf.Duration overtime = 1;
+    google.protobuf.Empty exact = 2;
+    google.protobuf.Duration under_time = 3;
+  }
+}
