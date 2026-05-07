@@ -4,7 +4,6 @@ use argon2::{
   Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
   password_hash::{SaltString, rand_core::OsRng},
 };
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use taptime_schema::{
   User,
   services::{AuthResponse, LoginRequest, RegisterUserRequest, auth_service_server::AuthService},
@@ -15,13 +14,6 @@ use uuid::Uuid;
 pub struct AuthServiceImpl {
   db: sqlx::PgPool,
   jwt_secret: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct Claims {
-  sub: String,
-  iat: u64,
-  exp: u64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -52,28 +44,11 @@ impl AuthServiceImpl {
   }
 
   fn make_jwt(&self, user_id: Uuid) -> Result<String, Status> {
-    let now = chrono::Utc::now();
-    let claims = Claims {
-      sub: user_id.to_string(),
-      iat: now.timestamp() as u64,
-      exp: (now + chrono::Duration::days(30)).timestamp() as u64,
-    };
-    encode(
-      &Header::default(),
-      &claims,
-      &EncodingKey::from_secret(self.jwt_secret.as_bytes()),
-    )
-    .map_err(|e| Status::internal(format!("JWT sign error: {e}")))
+    crate::jwt::sign(user_id, &self.jwt_secret)
   }
 
   fn decode_jwt(&self, token: &str) -> Result<Uuid, Status> {
-    decode::<Claims>(
-      token,
-      &DecodingKey::from_secret(self.jwt_secret.as_bytes()),
-      &Validation::default(),
-    )
-    .map_err(|_| Status::unauthenticated("Invalid or expired token"))
-    .and_then(|d| Uuid::parse_str(&d.claims.sub).map_err(|_| Status::internal("Malformed token")))
+    crate::jwt::verify(token, &self.jwt_secret)
   }
 
   async fn fetch_user(&self, id: Uuid) -> Result<taptime_core::User, Status> {

@@ -1,1 +1,3 @@
 pub mod auth;
+
+pub use self::auth::{AuthInterceptor, AuthenticatedUser};
