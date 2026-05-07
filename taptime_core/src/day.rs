@@ -109,16 +109,20 @@ impl Day {
 
   /// Calculates the total work hours for the day.
   ///
-  /// If the day is a day off or remote work day, always returns `None`.
+  /// If the day is a day off, returns `None`.
   /// If the day is a weekend, returns the weekend work hours.
+  /// If the day is a remote work day, returns the required work hours.
   /// If the day is a regular work day, returns the regular work hours.
   ///
   /// Work hours are calculated by taking the difference between the **first** check-in and
   /// **last** check-out, subtracting the lunch break duration (taken from the user's settings)
   /// if applicable.
   pub fn work_hours(&self) -> Result<Option<chrono::Duration>> {
-    if self.is_remote() || self.is_weekend() {
+    if self.is_weekend() {
       return Ok(None);
+    }
+    if self.is_remote() {
+      return Ok(Some(self.required_work_hours));
     }
     let (check_in, check_out) = match (self.first_check_in(), self.last_check_out()) {
       (None, _) => return Ok(None),
@@ -229,7 +233,7 @@ mod tests {
   fn lt(h: u32, m: u32) -> LocalTime {
     LocalTime::new(h, m, 0).unwrap()
   }
-  
+
   #[test]
   fn weekend_flag_roundtrip() {
     let mut day = make_user().new_day(date(2024, 1, 1));
