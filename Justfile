@@ -19,3 +19,8 @@ test-core:
 test: test-schema test-core
 
 mod web 'taptime_web'
+
+[working-directory("taptime_proto")]
+proto:
+    @npm install
+    @npm run generate

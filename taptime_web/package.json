@@ -12,6 +12,9 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@connectrpc/connect": "^2.0.0",
+    "@connectrpc/connect-web": "^2.0.0",
+    "@taptime/proto": "file:../taptime_proto",
     "i18n-js": "^4.5.3"
   },
   "devDependencies": {
