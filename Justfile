@@ -1,4 +1,4 @@
-alias gen := generate-ts
+alias gen := generate
 
 default:
     @echo "Usage: just <command> [options]"
@@ -7,6 +7,13 @@ default:
 [working-directory("taptime_schema")]
 generate-ts:
     @cargo test --features=serde,grpc,client,server,typescript
+
+[working-directory("taptime_proto")]
+generate-proto:
+    @npm install
+    @npm run generate
+
+generate: generate-ts generate-proto
 
 [working-directory("taptime_schema")]
 test-schema:
@@ -19,8 +26,3 @@ test-core:
 test: test-schema test-core
 
 mod web 'taptime_web'
-
-[working-directory("taptime_proto")]
-proto:
-    @npm install
-    @npm run generate

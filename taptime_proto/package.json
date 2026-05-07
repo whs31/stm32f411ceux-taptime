@@ -9,12 +9,12 @@
     "generate": "buf generate ../taptime_schema"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "^2.0.0",
-    "@connectrpc/connect": "^2.0.0"
+    "@bufbuild/protobuf": "^1.10.1",
+    "@connectrpc/connect": "^1.7.0"
   },
   "devDependencies": {
-    "@bufbuild/buf": "^1.0.0",
-    "@bufbuild/protoc-gen-es": "^2.0.0",
-    "@connectrpc/protoc-gen-connect-es": "^2.0.0"
+    "@bufbuild/buf": "^1.69.0",
+    "@bufbuild/protoc-gen-es": "^1.10.0",
+    "@connectrpc/protoc-gen-connect-es": "^1.7.0"
   }
 }

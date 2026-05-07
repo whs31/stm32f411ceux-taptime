@@ -5,3 +5,4 @@ server/*.db
 server/.venv
 server/taptime/__pycache__
 *.local.*
+**/node_modules
