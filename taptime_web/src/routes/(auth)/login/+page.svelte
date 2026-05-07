@@ -3,12 +3,11 @@
   import { Input } from "$lib/components/ui/input/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
-  import Logo from "$lib/icons/Logo.svelte";
+  import * as Password from "$lib/components/ui/password";
 </script>
 
 <Card.Root class="w-full max-w-sm">
   <Card.Header class="items-center text-center">
-    <Logo class="size-10" />
     <Card.Title class="text-xl">Sign in to TapTime</Card.Title>
     <Card.Description>Enter your credentials to continue</Card.Description>
   </Card.Header>
@@ -19,11 +18,18 @@
     </div>
     <div class="flex flex-col gap-2">
       <Label for="password">Password</Label>
-      <Input id="password" type="password" placeholder="••••••••" />
+      <Password.Root>
+        <Password.Input value="" placeholder="••••••••••••••••">
+          <Password.ToggleVisibility />
+        </Password.Input>
+      </Password.Root>
     </div>
     <Button class="w-full">Sign in</Button>
   </Card.Content>
   <Card.Footer class="justify-center text-sm text-muted-foreground">
-    Don't have an account?&nbsp;<a href="/register" class="underline underline-offset-4">Register</a>
+    Don't have an account?&nbsp;<a
+      href="/register"
+      class="underline underline-offset-4">Register</a
+    >
   </Card.Footer>
 </Card.Root>

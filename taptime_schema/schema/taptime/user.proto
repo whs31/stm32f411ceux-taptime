@@ -1,13 +1,13 @@
 syntax = "proto3";
 
-import public "google/protobuf/timestamp.proto";
+package com.whs31.taptime;
+
 import public "google/protobuf/duration.proto";
+import public "google/protobuf/timestamp.proto";
 import public "taptime/tz.proto";
 import public "taptime/uid.proto";
 import public "taptime/uuid.proto";
 import public "taptime/weekday.proto";
-
-package com.whs31.taptime;
 
 message User {
   message Settings {
