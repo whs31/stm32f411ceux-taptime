@@ -9,6 +9,9 @@ use clap::Parser;
 pub struct Args {
   #[arg(short, long, default_value = "127.0.0.1:50051")]
   pub address: SocketAddr,
+
+  #[arg(short = 'L', long, default_value_t = tracing::Level::INFO)]
+  pub log_level: tracing::Level,
 }
 
 #[must_use]

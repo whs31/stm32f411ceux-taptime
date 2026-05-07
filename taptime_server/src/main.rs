@@ -3,18 +3,43 @@ mod error;
 pub mod interceptors;
 pub mod services;
 
+use std::path::Path;
+
 pub use self::{
   args::Args,
   error::{Error, Result},
 };
 
+fn init_tracing(
+  level: tracing::Level,
+  log_dir: &Path,
+) -> tracing_appender::non_blocking::WorkerGuard {
+  use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
+  let file_appender = tracing_appender::rolling::daily(log_dir, "taptime_server.log");
+  let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
+
+  tracing_subscriber::registry()
+    .with(EnvFilter::new(level.to_string()))
+    .with(fmt::layer())
+    .with(fmt::layer().with_writer(file_writer).with_ansi(false))
+    .init();
+
+  guard
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+  let directories = directories::ProjectDirs::from("com", "whs31", "TapTime")
+    .expect("failed to get project directories");
+
   let args = args::parse();
+  let _guard = init_tracing(args.log_level, &directories.data_dir().join("logs"));
 
   let auth_service = services::AuthServiceImpl {};
   let svc = taptime_schema::services::auth_service_server::AuthServiceServer::new(auth_service);
 
+  tracing::info!("server listening on {}", args.address);
   tonic::transport::Server::builder()
     .accept_http1(true)
     .layer(tonic_web::GrpcWebLayer::new())
