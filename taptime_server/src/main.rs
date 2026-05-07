@@ -36,7 +36,10 @@ async fn main() -> Result<()> {
   let args = args::parse();
   let _guard = init_tracing(args.log_level, &directories.data_dir().join("logs"));
 
-  let auth_service = services::AuthServiceImpl {};
+  let pool = sqlx::PgPool::connect(&args.database_url).await?;
+  sqlx::migrate!("./migrations").run(&pool).await?;
+
+  let auth_service = services::AuthServiceImpl::new(pool, args.jwt_secret);
   let svc = taptime_schema::services::auth_service_server::AuthServiceServer::new(auth_service);
 
   tracing::info!("server listening on {}", args.address);

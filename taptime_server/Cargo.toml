@@ -12,6 +12,7 @@ derive_more = { version = "2", features = ["display", "from_str"] }
 
 uuid = "1"
 chrono = "0.4"
+chrono-tz = "0.10"
 directories = "6"
 semver = "1"
 
@@ -28,8 +29,11 @@ argon2 = "0.5"
 password-hash = "0.6"
 rand = "0.9"
 
-clap = { version = "4", features = ["derive", "color"] }
+clap = { version = "4", features = ["derive", "color", "env"] }
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
+
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate"] }
+jsonwebtoken = "10"

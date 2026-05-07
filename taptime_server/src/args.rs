@@ -12,6 +12,12 @@ pub struct Args {
 
   #[arg(short = 'L', long, default_value_t = tracing::Level::INFO)]
   pub log_level: tracing::Level,
+
+  #[arg(long, env = "DATABASE_URL")]
+  pub database_url: String,
+
+  #[arg(long, env = "JWT_SECRET")]
+  pub jwt_secret: String,
 }
 
 #[must_use]
