@@ -1,9 +1,13 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import * as Sidebar from "$lib/components/ui/sidebar/index.js";
   import SidebarBlock from "$lib/blocks/SidebarBlock.svelte";
   import SiteHeaderBlock from "$lib/blocks/SiteHeaderBlock.svelte";
+  import { userStore } from "$lib/stores/index.js";
 
   let { children } = $props();
+
+  onMount(() => { userStore.fetch(); });
 </script>
 
 <Sidebar.Provider

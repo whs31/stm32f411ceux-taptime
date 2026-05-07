@@ -8,14 +8,15 @@
   import UserIcon from "@lucide/svelte/icons/user";
   import Logo from "$lib/icons/Logo.svelte";
   import NavMainBlock from "$lib/blocks/sidebar/NavMainBlock.svelte";
+  import NavUserBlock from "$lib/blocks/sidebar/NavUserBlock.svelte";
 
   const data = {
     nav: [
       { title: "Dashboard", url: "/dashboard", icon: GaugeIcon },
-      { title: "History",   url: "/history",   icon: HistoryIcon },
-      { title: "Reports",   url: "/reports",   icon: BarChart3Icon },
-      { title: "Settings",  url: "/settings",  icon: SettingsIcon },
-      { title: "Profile",   url: "/profile",   icon: UserIcon },
+      { title: "History", url: "/history", icon: HistoryIcon },
+      { title: "Reports", url: "/reports", icon: BarChart3Icon },
+      { title: "Settings", url: "/settings", icon: SettingsIcon },
+      { title: "Profile", url: "/profile", icon: UserIcon },
     ],
   };
 
@@ -42,6 +43,6 @@
     <!-- <NavSecondary items={data.navSecondary} class="mt-auto" /> -->
   </Sidebar.Content>
   <Sidebar.Footer>
-    <!-- <NavUser user={data.user} /> -->
+    <NavUserBlock />
   </Sidebar.Footer>
 </Sidebar.Root>
