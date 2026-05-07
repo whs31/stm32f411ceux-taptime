@@ -371,12 +371,12 @@ mod tests {
   }
 
   #[test]
-  fn work_hours_on_remote_is_none() {
+  fn work_hours_on_remote_is_zero_balance() {
     let mut day = make_user().new_day(date(2024, 1, 1));
     day.add_check_in(lt(9, 0)).unwrap();
     day.add_check_out(lt(17, 0)).unwrap();
     day.set_remote();
-    assert!(day.work_hours().unwrap().is_none());
+    assert_eq!(day.balance().unwrap(), Balance::Exact);
   }
 
   #[test]

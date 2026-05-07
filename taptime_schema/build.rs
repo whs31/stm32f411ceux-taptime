@@ -51,8 +51,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       "schema/taptime/user.proto",
       "schema/taptime/uuid.proto",
       "schema/taptime/weekday.proto",
-      // #[cfg(feature = "grpc")]
-      // "share/proto/quasar/relay/services/license.proto",
+      #[cfg(feature = "grpc")]
+      "schema/taptime/services/auth.proto",
     ],
     &["schema"],
   )?;
