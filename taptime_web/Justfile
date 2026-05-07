@@ -1,2 +1,7 @@
+alias i := install
+
 dev:
     @npm run dev
+
+install:
+    @npm install
