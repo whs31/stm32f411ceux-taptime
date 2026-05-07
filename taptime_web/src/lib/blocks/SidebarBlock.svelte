@@ -2,16 +2,20 @@
   import * as Sidebar from "$lib/components/ui/sidebar/index.js";
   import type { ComponentProps } from "svelte";
   import GaugeIcon from "@lucide/svelte/icons/gauge";
+  import HistoryIcon from "@lucide/svelte/icons/history";
+  import BarChart3Icon from "@lucide/svelte/icons/bar-chart-3";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
+  import UserIcon from "@lucide/svelte/icons/user";
   import Logo from "$lib/icons/Logo.svelte";
   import NavMainBlock from "$lib/blocks/sidebar/NavMainBlock.svelte";
 
   const data = {
     nav: [
-      {
-        title: "Dashboard",
-        url: "#", // todo
-        icon: GaugeIcon,
-      },
+      { title: "Dashboard", url: "/dashboard", icon: GaugeIcon },
+      { title: "History",   url: "/history",   icon: HistoryIcon },
+      { title: "Reports",   url: "/reports",   icon: BarChart3Icon },
+      { title: "Settings",  url: "/settings",  icon: SettingsIcon },
+      { title: "Profile",   url: "/profile",   icon: UserIcon },
     ],
   };
 
