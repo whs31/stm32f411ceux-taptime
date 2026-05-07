@@ -1,0 +1,22 @@
+set dotenv-load := true
+set shell := ["bash", "-cu"]
+
+db_url := env("DATABASE_URL", "postgresql://taptime:taptime@localhost:5432/taptime_dev")
+jwt_secret := env("JWT_SECRET", "dev-secret-do-not-use-in-production")
+
+db-up:
+    podman start taptime-dev-postgres 2>/dev/null || \
+        podman run -d --name taptime-dev-postgres \
+            -e POSTGRES_USER=taptime \
+            -e POSTGRES_PASSWORD=taptime \
+            -e POSTGRES_DB=taptime_dev \
+            -p 5432:5432 \
+            docker.io/library/postgres:16-alpine
+    until podman exec taptime-dev-postgres pg_isready -U taptime -d taptime_dev -q 2>/dev/null; \
+        do sleep 0.5; done
+
+db-down:
+    podman stop taptime-dev-postgres
+
+dev: db-up
+    DATABASE_URL={{db_url}} JWT_SECRET={{jwt_secret}} cargo run -- -L trace

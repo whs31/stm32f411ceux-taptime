@@ -26,3 +26,4 @@ test-core:
 test: test-schema test-core
 
 mod web 'taptime_web'
+mod server 'taptime_server'
