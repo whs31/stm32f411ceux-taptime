@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
   import * as Sidebar from "$lib/components/ui/sidebar/index.js";
   import SidebarBlock from "$lib/blocks/SidebarBlock.svelte";
   import SiteHeaderBlock from "$lib/blocks/SiteHeaderBlock.svelte";
@@ -7,7 +8,16 @@
 
   let { children } = $props();
 
-  onMount(() => { userStore.fetch(); });
+  onMount(async () => {
+    if (!localStorage.getItem("jwt")) {
+      goto("/login");
+      return;
+    }
+    await userStore.fetch();
+    if (!userStore.user) {
+      goto("/login");
+    }
+  });
 </script>
 
 <Sidebar.Provider

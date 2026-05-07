@@ -3,10 +3,16 @@
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
   import * as Sidebar from "$lib/components/ui/sidebar/index.js";
   import { Skeleton } from "$lib/components/ui/skeleton/index.js";
+  import { goto } from "$app/navigation";
   import { userStore } from "$lib/stores";
   import { EllipsisVerticalIcon, LogOutIcon } from "@lucide/svelte";
 
   const sidebar = Sidebar.useSidebar();
+
+  function logout() {
+    userStore.clear();
+    goto("/login");
+  }
 </script>
 
 <Sidebar.Menu>
@@ -71,7 +77,7 @@
             </div>
           </DropdownMenu.Label>
           <DropdownMenu.Separator />
-          <DropdownMenu.Item>
+          <DropdownMenu.Item onclick={logout}>
             <LogOutIcon />
             Log out
           </DropdownMenu.Item>
