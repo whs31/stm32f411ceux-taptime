@@ -40,6 +40,21 @@
   const TIMEZONES: string[] = Intl.supportedValuesOf("timeZone");
   const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+  const TIMEZONE_GROUPS: [string, string[]][] = (() => {
+    const groups: Record<string, string[]> = {};
+    for (const tz of TIMEZONES) {
+      const slash = tz.indexOf("/");
+      const region = slash === -1 ? "Other" : tz.slice(0, slash);
+      (groups[region] ??= []).push(tz);
+    }
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+  })();
+
+  function tzLabel(tz: string): string {
+    const last = tz.lastIndexOf("/");
+    return (last === -1 ? tz : tz.slice(last + 1)).replaceAll("_", " ");
+  }
+
   const client = createPromiseClient(AuthService, transport);
 
   let step = $state(2);
@@ -235,14 +250,16 @@
                   >{selectTimezoneTriggerContent}</Select.Trigger
                 >
                 <Select.Content class="max-h-100">
-                  <Select.Group>
-                    <Select.Label>Timezones</Select.Label>
-                    {#each TIMEZONES as tz}
-                      <Select.Item value={tz} label={tz}>
-                        {tz}
-                      </Select.Item>
-                    {/each}
-                  </Select.Group>
+                  {#each TIMEZONE_GROUPS as [region, tzs]}
+                    <Select.Group>
+                      <Select.Label>{region}</Select.Label>
+                      {#each tzs as tz}
+                        <Select.Item value={tz} label={tzLabel(tz)}>
+                          {tzLabel(tz)}
+                        </Select.Item>
+                      {/each}
+                    </Select.Group>
+                  {/each}
                 </Select.Content>
               </Select.Root>
             </div>
