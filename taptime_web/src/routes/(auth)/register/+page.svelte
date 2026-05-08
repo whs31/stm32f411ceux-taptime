@@ -13,13 +13,10 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Password from "$lib/components/ui/password";
   import type { ZxcvbnResult } from "@zxcvbn-ts/core";
-  import { createPromiseClient } from "@connectrpc/connect";
-  import { AuthService } from "@taptime/proto/taptime/services/auth_connect.js";
-  import { RegisterUserRequest } from "@taptime/proto/taptime/services/auth_pb.js";
+  import { AuthService } from "$lib/services";
   import { User, User_Settings } from "@taptime/proto/taptime/user_pb.js";
   import { Tz } from "@taptime/proto/taptime/tz_pb.js";
   import { Duration } from "@bufbuild/protobuf";
-  import { transport } from "$lib/grpc";
   import { goto } from "$app/navigation";
   import {
     TimeZoneSelect,
@@ -30,10 +27,7 @@
   import { Weekday } from "@taptime/proto/taptime/weekday_pb.js";
 
   const SCORE_NAMING = ["Poor", "Weak", "Average", "Strong", "Secure"];
-
   const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  const client = createPromiseClient(AuthService, transport);
 
   let step = $state(1);
 
@@ -94,25 +88,21 @@
       const workSecs = BigInt(workHours * 3600 + workMinutes * 60);
       const lunchSecs = BigInt(lunchMinutes * 60);
 
-      const response = await client.registerUser(
-        new RegisterUserRequest({
-          password,
-          user: new User({
-            name: name.trim(),
-            email: email.trim(),
-            organization: organization.trim() || undefined,
-            timeZone: new Tz({ timeZone: timezone }),
-            settings: new User_Settings({
-              requiredWorkHours: new Duration({ seconds: workSecs }),
-              lunchBreakDuration: new Duration({ seconds: lunchSecs }),
-              weekends,
-              remoteDays,
-            }),
+      await AuthService.registerUser(
+        new User({
+          name: name.trim(),
+          email: email.trim(),
+          organization: organization.trim() || undefined,
+          timeZone: new Tz({ timeZone: timezone }),
+          settings: new User_Settings({
+            requiredWorkHours: new Duration({ seconds: workSecs }),
+            lunchBreakDuration: new Duration({ seconds: lunchSecs }),
+            weekends,
+            remoteDays,
           }),
         }),
+        password,
       );
-
-      localStorage.setItem("jwt", response.jwt);
       await goto("/");
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);

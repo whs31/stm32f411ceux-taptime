@@ -6,13 +6,8 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Password from "$lib/components/ui/password";
   import { CircleAlert } from "@lucide/svelte";
-  import { createPromiseClient } from "@connectrpc/connect";
-  import { AuthService } from "@taptime/proto/taptime/services/auth_connect.js";
-  import { LoginRequest } from "@taptime/proto/taptime/services/auth_pb.js";
-  import { transport } from "$lib/grpc";
+  import { AuthService } from "$lib/services";
   import { goto } from "$app/navigation";
-
-  const client = createPromiseClient(AuthService, transport);
 
   let email = $state("");
   let password = $state("");
@@ -23,10 +18,7 @@
     submitting = true;
     error = undefined;
     try {
-      const response = await client.login(
-        new LoginRequest({ email: email.trim(), password }),
-      );
-      localStorage.setItem("jwt", response.jwt);
+      await AuthService.login(email, password);
       await goto("/");
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
