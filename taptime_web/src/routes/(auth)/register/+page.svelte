@@ -131,26 +131,26 @@
     <Stepper.Root bind:step>
       <Stepper.Nav orientation="horizontal" class="justify-between">
         <Stepper.Item id="account">
-          <Stepper.Trigger class="items-center">
+          <Stepper.Trigger class="w-full items-center">
             <Stepper.Indicator>
               <UserIcon />
             </Stepper.Indicator>
             <Stepper.Description>Account</Stepper.Description>
           </Stepper.Trigger>
-          <Stepper.Separator />
+          <Stepper.Separator class="left-1/2" />
         </Stepper.Item>
         <Stepper.Item id="schedule">
-          <Stepper.Trigger class="items-center" disabled={!step1Valid}>
+          <Stepper.Trigger class="w-full items-center" disabled={!step1Valid}>
             <Stepper.Indicator>
               <Calendar1Icon />
             </Stepper.Indicator>
             <Stepper.Description>Schedule</Stepper.Description>
           </Stepper.Trigger>
-          <Stepper.Separator />
+          <Stepper.Separator class="left-1/2" />
         </Stepper.Item>
-        <Stepper.Item id="profile">
+        <Stepper.Item id="profile" class="flex-1">
           <Stepper.Trigger
-            class="items-center"
+            class="w-full items-center"
             disabled={!step1Valid || !step2Valid}
           >
             <Stepper.Indicator>
