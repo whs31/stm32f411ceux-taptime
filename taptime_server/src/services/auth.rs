@@ -11,31 +11,11 @@ use taptime_schema::{
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use super::db::{CredRow, fetch_core_user, weekday_to_iso};
+
 pub struct AuthServiceImpl {
   db: sqlx::PgPool,
   jwt_secret: String,
-}
-
-#[derive(sqlx::FromRow)]
-struct UserRow {
-  id: Uuid,
-  name: String,
-  email: String,
-  organization: Option<String>,
-  time_zone: String,
-  created_at: chrono::DateTime<chrono::Utc>,
-  last_seen: Option<chrono::DateTime<chrono::Utc>>,
-  rfid_uid: Option<Vec<u8>>,
-  required_work_hours_secs: i64,
-  lunch_break_duration_secs: i64,
-  weekends: Vec<i32>,
-  remote_days: Vec<i32>,
-}
-
-#[derive(sqlx::FromRow)]
-struct CredRow {
-  user_id: Uuid,
-  password_hash: String,
 }
 
 impl AuthServiceImpl {
@@ -52,60 +32,7 @@ impl AuthServiceImpl {
   }
 
   async fn fetch_user(&self, id: Uuid) -> Result<taptime_core::User, Status> {
-    let row = sqlx::query_as::<_, UserRow>(include_str!("queries/fetch_user.sql"))
-      .bind(id)
-      .fetch_optional(&self.db)
-      .await
-      .map_err(|e| Status::internal(e.to_string()))?
-      .ok_or_else(|| Status::not_found("User not found"))?;
-
-    row_to_core_user(row)
-  }
-}
-
-fn row_to_core_user(row: UserRow) -> Result<taptime_core::User, Status> {
-  let time_zone = row
-    .time_zone
-    .parse::<chrono_tz::Tz>()
-    .map_err(|_| Status::internal("Invalid timezone stored in database"))?;
-
-  let rfid_uid = row
-    .rfid_uid
-    .map(|bytes| taptime_core::Uid::try_from(taptime_schema::Uid { value: bytes }))
-    .transpose()
-    .map_err(|_| Status::internal("Invalid RFID UID stored in database"))?;
-
-  Ok(taptime_core::User {
-    id: row.id,
-    name: row.name,
-    email: row.email,
-    organization: row.organization,
-    time_zone,
-    created_at: row.created_at,
-    last_seen: row.last_seen,
-    rfid_uid,
-    settings: taptime_core::UserSettings {
-      required_work_hours: chrono::Duration::seconds(row.required_work_hours_secs),
-      lunch_break_duration: chrono::Duration::seconds(row.lunch_break_duration_secs),
-      weekends: row.weekends.into_iter().map(weekday_from_iso).collect(),
-      remote_days: row.remote_days.into_iter().map(weekday_from_iso).collect(),
-    },
-  })
-}
-
-fn weekday_to_iso(w: chrono::Weekday) -> i32 {
-  w.num_days_from_monday() as i32 + 1
-}
-
-fn weekday_from_iso(n: i32) -> chrono::Weekday {
-  match n {
-    1 => chrono::Weekday::Mon,
-    2 => chrono::Weekday::Tue,
-    3 => chrono::Weekday::Wed,
-    4 => chrono::Weekday::Thu,
-    5 => chrono::Weekday::Fri,
-    6 => chrono::Weekday::Sat,
-    _ => chrono::Weekday::Sun,
+    fetch_core_user(&self.db, id).await
   }
 }
 
@@ -224,14 +151,12 @@ impl AuthService for AuthServiceImpl {
   ) -> Result<Response<AuthResponse>, Status> {
     let req = request.into_inner();
 
-    let cred = sqlx::query_as::<_, CredRow>(
-      include_str!("queries/fetch_user_credentials.sql"),
-    )
-    .bind(&req.email)
-    .fetch_optional(&self.db)
-    .await
-    .map_err(|e| Status::internal(e.to_string()))?
-    .ok_or_else(|| Status::not_found("User not found"))?;
+    let cred = sqlx::query_as::<_, CredRow>(include_str!("queries/fetch_user_credentials.sql"))
+      .bind(&req.email)
+      .fetch_optional(&self.db)
+      .await
+      .map_err(|e| Status::internal(e.to_string()))?
+      .ok_or_else(|| Status::not_found("User not found"))?;
 
     let parsed_hash =
       PasswordHash::new(&cred.password_hash).map_err(|e| Status::internal(e.to_string()))?;

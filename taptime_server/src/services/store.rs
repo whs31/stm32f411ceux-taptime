@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use chrono::Datelike;
 use taptime_core::{DayFlags, LocalTime};
 use taptime_schema::{
   Date,
@@ -14,6 +13,8 @@ use uuid::Uuid;
 
 use crate::interceptors::AuthenticatedUser;
 
+use super::db::fetch_core_user;
+
 pub struct StoreServiceImpl {
   db: sqlx::PgPool,
 }
@@ -22,14 +23,6 @@ impl StoreServiceImpl {
   pub fn new(db: sqlx::PgPool) -> Self {
     Self { db }
   }
-}
-
-#[derive(sqlx::FromRow)]
-struct SettingsRow {
-  required_work_hours_secs: i64,
-  lunch_break_duration_secs: i64,
-  weekends: Vec<i32>,
-  remote_days: Vec<i32>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -60,23 +53,11 @@ impl StoreServiceImpl {
   ) -> Result<taptime_core::Day, Status> {
     let days = date_to_epoch_days(date);
 
-    let settings =
-      sqlx::query_as::<_, SettingsRow>(include_str!("queries/fetch_user_settings.sql"))
-        .bind(user_id)
-        .fetch_optional(&self.db)
-        .await
-        .map_err(|e| Status::internal(e.to_string()))?
-        .ok_or_else(|| Status::not_found("User not found"))?;
+    let user = fetch_core_user(&self.db, user_id).await?;
+    let mut day = user.new_day(date);
 
-    let iso_weekday = date.weekday().num_days_from_monday() as i32 + 1;
-    let mut flags = DayFlags::empty();
-    if settings.weekends.contains(&iso_weekday) {
-      flags.insert(DayFlags::WEEKEND);
-    }
-    if settings.remote_days.contains(&iso_weekday) {
-      flags.insert(DayFlags::REMOTE);
-    }
-
+    // Stored flags fully override the defaults derived from user settings.
+    // required_work_hours is recomputed to match new_day() logic for the overridden flags.
     let stored_flags: Option<i32> =
       sqlx::query_scalar(include_str!("queries/fetch_day_flags.sql"))
         .bind(user_id)
@@ -86,7 +67,12 @@ impl StoreServiceImpl {
         .map_err(|e| Status::internal(e.to_string()))?;
 
     if let Some(f) = stored_flags {
-      flags = DayFlags::from_bits_truncate(f as u32);
+      day.flags = DayFlags::from_bits_truncate(f as u32);
+      day.required_work_hours = if day.flags.contains(DayFlags::WEEKEND) {
+        chrono::Duration::zero()
+      } else {
+        user.settings.required_work_hours
+      };
     }
 
     let event_rows = sqlx::query_as::<_, EventRow>(include_str!("queries/fetch_events.sql"))
@@ -96,7 +82,7 @@ impl StoreServiceImpl {
       .await
       .map_err(|e| Status::internal(e.to_string()))?;
 
-    let events = event_rows
+    day.events = event_rows
       .into_iter()
       .map(|row| {
         let lt = LocalTime::new(row.hour as u32, row.minute as u32, row.second as u32)
@@ -106,15 +92,9 @@ impl StoreServiceImpl {
           _ => taptime_core::Event::CheckOut(lt),
         })
       })
-      .collect::<Result<Vec<_>, Status>>()?;
+      .collect::<Result<_, Status>>()?;
 
-    Ok(taptime_core::Day {
-      date,
-      events,
-      flags,
-      required_work_hours: chrono::Duration::seconds(settings.required_work_hours_secs),
-      lunch_break_duration: chrono::Duration::seconds(settings.lunch_break_duration_secs),
-    })
+    Ok(day)
   }
 }
 
