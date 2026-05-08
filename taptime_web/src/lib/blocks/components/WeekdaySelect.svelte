@@ -22,19 +22,14 @@
   }
 </script>
 
-<div class="flex gap-1.5">
+<div class="grid grid-cols-7 gap-1.5">
   {#each WEEKDAYS as { label, day } (day)}
-    <button
-      type="button"
+    <Button
       onclick={() => toggle(day)}
-      class={cn(
-        "h-9 w-10 rounded-md text-xs font-medium transition-colors",
-        value.includes(day)
-          ? "bg-primary text-primary-foreground"
-          : "bg-muted text-muted-foreground hover:bg-muted/70",
-      )}
+      variant={value.includes(day) ? "default" : "outline"}
+      class="rounded-md"
     >
       {label}
-    </button>
+    </Button>
   {/each}
 </div>
