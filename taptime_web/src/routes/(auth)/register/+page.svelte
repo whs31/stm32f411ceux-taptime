@@ -12,13 +12,11 @@
   import { Label } from "$lib/components/ui/label/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Password from "$lib/components/ui/password";
-  import { cn } from "$lib/utils";
   import type { ZxcvbnResult } from "@zxcvbn-ts/core";
   import { createPromiseClient } from "@connectrpc/connect";
   import { AuthService } from "@taptime/proto/taptime/services/auth_connect.js";
   import { RegisterUserRequest } from "@taptime/proto/taptime/services/auth_pb.js";
   import { User, User_Settings } from "@taptime/proto/taptime/user_pb.js";
-  import { Weekday } from "@taptime/proto/taptime/weekday_pb.js";
   import { Tz } from "@taptime/proto/taptime/tz_pb.js";
   import { Duration } from "@bufbuild/protobuf";
   import { transport } from "$lib/grpc";
@@ -27,19 +25,11 @@
     TimeZoneSelect,
     WorkHoursInput,
     LunchBreakSelect,
+    WeekdaySelect,
   } from "$lib/blocks/components";
+  import { Weekday } from "@taptime/proto/taptime/weekday_pb.js";
 
   const SCORE_NAMING = ["Poor", "Weak", "Average", "Strong", "Secure"];
-
-  const WEEKDAYS: { label: string; value: Weekday }[] = [
-    { label: "Mon", value: Weekday.MONDAY },
-    { label: "Tue", value: Weekday.TUESDAY },
-    { label: "Wed", value: Weekday.WEDNESDAY },
-    { label: "Thu", value: Weekday.THURSDAY },
-    { label: "Fri", value: Weekday.FRIDAY },
-    { label: "Sat", value: Weekday.SATURDAY },
-    { label: "Sun", value: Weekday.SUNDAY },
-  ];
 
   const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -85,10 +75,6 @@
   const nextDisabled = $derived(
     (step === 1 && !step1Valid) || (step === 2 && !step2Valid),
   );
-
-  function toggleDay(days: Weekday[], day: Weekday): Weekday[] {
-    return days.includes(day) ? days.filter((d) => d !== day) : [...days, day];
-  }
 
   async function submit() {
     submitting = true;
@@ -247,42 +233,11 @@
             </div>
             <div class="flex flex-col gap-2">
               <Label>Weekend days</Label>
-              <div class="flex gap-1.5">
-                {#each WEEKDAYS as day}
-                  <button
-                    type="button"
-                    onclick={() => (weekends = toggleDay(weekends, day.value))}
-                    class={cn(
-                      "h-9 w-10 rounded-md text-xs font-medium transition-colors",
-                      weekends.includes(day.value)
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/70",
-                    )}
-                  >
-                    {day.label}
-                  </button>
-                {/each}
-              </div>
+              <WeekdaySelect bind:value={weekends} />
             </div>
             <div class="flex flex-col gap-2">
               <Label>Remote days</Label>
-              <div class="flex gap-1.5">
-                {#each WEEKDAYS as day}
-                  <button
-                    type="button"
-                    onclick={() =>
-                      (remoteDays = toggleDay(remoteDays, day.value))}
-                    class={cn(
-                      "h-9 w-10 rounded-md text-xs font-medium transition-colors",
-                      remoteDays.includes(day.value)
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/70",
-                    )}
-                  >
-                    {day.label}
-                  </button>
-                {/each}
-              </div>
+              <WeekdaySelect bind:value={remoteDays} />
             </div>
           </div>
 

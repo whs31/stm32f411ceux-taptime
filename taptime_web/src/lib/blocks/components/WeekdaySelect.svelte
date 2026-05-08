@@ -1,29 +1,40 @@
 <script lang="ts">
-  import { Button } from "$lib/components/ui/button/index.js";
+  import { cn } from "$lib/utils";
   import { Weekday } from "@taptime/proto/taptime/weekday_pb.js";
+  import { Button } from "$lib/components/ui/button/index.js";
 
-  let { value = $bindable() }: { value: number } = $props();
+  let { value = $bindable<Weekday[]>([]) }: { value: Weekday[] } = $props();
 
-  const values = [
-    { value: 0, label: "No lunch break" },
-    { value: 15, label: "15 minutes" },
-    { value: 30, label: "30 minutes" },
-    { value: 45, label: "45 minutes" },
-    { value: 60, label: "1 hour" },
+  const WEEKDAYS: { label: string; day: Weekday }[] = [
+    { label: "MON", day: Weekday.MONDAY },
+    { label: "TUE", day: Weekday.TUESDAY },
+    { label: "WED", day: Weekday.WEDNESDAY },
+    { label: "THU", day: Weekday.THURSDAY },
+    { label: "FRI", day: Weekday.FRIDAY },
+    { label: "SAT", day: Weekday.SATURDAY },
+    { label: "SUN", day: Weekday.SUNDAY },
   ];
 
-  const triggerContent = $derived(
-    values.find((f) => f.value === value)?.label ?? "Select a lunch break time",
-  );
+  function toggle(day: Weekday) {
+    value = value.includes(day)
+      ? value.filter((d) => d !== day)
+      : [...value, day];
+  }
 </script>
 
-<Select.Root type="single" name="lunchBreak" bind:value>
-  <Select.Trigger class="w-full">{triggerContent}</Select.Trigger>
-  <Select.Content class="max-h-100">
-    {#each values as v (v.value)}
-      <Select.Item value={v.value} label={v.label}>
-        {v.label}
-      </Select.Item>
-    {/each}
-  </Select.Content>
-</Select.Root>
+<div class="flex gap-1.5">
+  {#each WEEKDAYS as { label, day } (day)}
+    <button
+      type="button"
+      onclick={() => toggle(day)}
+      class={cn(
+        "h-9 w-10 rounded-md text-xs font-medium transition-colors",
+        value.includes(day)
+          ? "bg-primary text-primary-foreground"
+          : "bg-muted text-muted-foreground hover:bg-muted/70",
+      )}
+    >
+      {label}
+    </button>
+  {/each}
+</div>
