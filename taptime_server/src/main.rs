@@ -1,7 +1,7 @@
 mod args;
 mod error;
-mod jwt;
 pub mod interceptors;
+mod jwt;
 pub mod services;
 
 use std::path::Path;

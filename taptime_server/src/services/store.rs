@@ -3,17 +3,13 @@ use std::sync::Arc;
 use taptime_core::{DayFlags, LocalTime};
 use taptime_schema::{
   Date,
-  services::{
-    EventRequest, SetFlagRequest,
-    store_service_server::StoreService,
-  },
+  services::{EventRequest, SetFlagRequest, store_service_server::StoreService},
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::interceptors::AuthenticatedUser;
-
 use super::db::fetch_core_user;
+use crate::interceptors::AuthenticatedUser;
 
 pub struct StoreServiceImpl {
   db: sqlx::PgPool,
@@ -58,13 +54,12 @@ impl StoreServiceImpl {
 
     // Stored flags fully override the defaults derived from user settings.
     // required_work_hours is recomputed to match new_day() logic for the overridden flags.
-    let stored_flags: Option<i32> =
-      sqlx::query_scalar(include_str!("queries/fetch_day_flags.sql"))
-        .bind(user_id)
-        .bind(days)
-        .fetch_optional(&self.db)
-        .await
-        .map_err(|e| Status::internal(e.to_string()))?;
+    let stored_flags: Option<i32> = sqlx::query_scalar(include_str!("queries/fetch_day_flags.sql"))
+      .bind(user_id)
+      .bind(days)
+      .fetch_optional(&self.db)
+      .await
+      .map_err(|e| Status::internal(e.to_string()))?;
 
     if let Some(f) = stored_flags {
       day.flags = DayFlags::from_bits_truncate(f as u32);

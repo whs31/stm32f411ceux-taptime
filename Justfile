@@ -1,4 +1,5 @@
 alias gen := generate
+alias fmt := format
 
 default:
     @echo "Usage: just <command> [options]"
@@ -24,6 +25,17 @@ test-core:
     @cargo test
 
 test: test-schema test-core
+
+[working-directory("taptime_core")]
+format-core:
+    @cargo +nightly fmt
+
+[working-directory("taptime_schema")]
+format-schema:
+    @cargo +nightly fmt
+
+format: format-core format-schema
+    @just server format
 
 mod web 'taptime_web'
 mod server 'taptime_server'

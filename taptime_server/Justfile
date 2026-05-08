@@ -20,3 +20,6 @@ db-down:
 
 dev: db-up
     DATABASE_URL={{db_url}} JWT_SECRET={{jwt_secret}} cargo run -- -L trace
+
+format:
+    @cargo +nightly fmt
