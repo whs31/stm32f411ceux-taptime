@@ -131,7 +131,7 @@
     <Stepper.Root bind:step>
       <Stepper.Nav orientation="horizontal" class="justify-between">
         <Stepper.Item id="account">
-          <Stepper.Trigger>
+          <Stepper.Trigger class="items-center">
             <Stepper.Indicator>
               <UserIcon />
             </Stepper.Indicator>
@@ -140,7 +140,7 @@
           <Stepper.Separator />
         </Stepper.Item>
         <Stepper.Item id="schedule">
-          <Stepper.Trigger disabled={!step1Valid}>
+          <Stepper.Trigger class="items-center" disabled={!step1Valid}>
             <Stepper.Indicator>
               <Calendar1Icon />
             </Stepper.Indicator>
@@ -149,7 +149,7 @@
           <Stepper.Separator />
         </Stepper.Item>
         <Stepper.Item id="profile">
-          <Stepper.Trigger disabled={!step1Valid || !step2Valid}>
+          <Stepper.Trigger class="items-center" disabled={!step1Valid || !step2Valid}>
             <Stepper.Indicator>
               <SlidersVerticalIcon />
             </Stepper.Indicator>
