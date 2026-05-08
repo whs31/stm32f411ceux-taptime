@@ -66,7 +66,6 @@
       <Password.Root>
         <Password.Input
           bind:value={password}
-          placeholder="••••••••••••••••"
           onkeydown={(e) => e.key === "Enter" && login()}
         >
           <Password.ToggleVisibility />

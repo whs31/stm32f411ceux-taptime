@@ -149,7 +149,10 @@
           <Stepper.Separator />
         </Stepper.Item>
         <Stepper.Item id="profile">
-          <Stepper.Trigger class="items-center" disabled={!step1Valid || !step2Valid}>
+          <Stepper.Trigger
+            class="items-center"
+            disabled={!step1Valid || !step2Valid}
+          >
             <Stepper.Indicator>
               <SlidersVerticalIcon />
             </Stepper.Indicator>
@@ -189,10 +192,7 @@
             <div class="flex flex-col gap-2">
               <Label for="password">Password</Label>
               <Password.Root minScore={2}>
-                <Password.Input
-                  bind:value={password}
-                  placeholder="••••••••••••••••"
-                >
+                <Password.Input bind:value={password}>
                   <Password.ToggleVisibility />
                 </Password.Input>
                 <div class="flex flex-col gap-1">
@@ -208,7 +208,6 @@
               <Password.Root>
                 <Password.Input
                   bind:value={confirmPassword}
-                  placeholder="••••••••••••••••"
                   aria-invalid={confirmPassword.length > 0 && !passwordsMatch}
                 >
                   <Password.ToggleVisibility />
