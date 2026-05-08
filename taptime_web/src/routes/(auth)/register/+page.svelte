@@ -2,7 +2,6 @@
   import * as Card from "$lib/components/ui/card/index.js";
   import * as Stepper from "$lib/components/ui/stepper";
   import * as Alert from "$lib/components/ui/alert/index.js";
-  import * as Select from "$lib/components/ui/select/index.js";
   import {
     CircleAlert,
     UserIcon,
@@ -24,6 +23,11 @@
   import { Duration } from "@bufbuild/protobuf";
   import { transport } from "$lib/grpc";
   import { goto } from "$app/navigation";
+  import {
+    TimeZoneSelect,
+    WorkHoursInput,
+    LunchBreakSelect,
+  } from "$lib/blocks/components";
 
   const SCORE_NAMING = ["Poor", "Weak", "Average", "Strong", "Secure"];
 
@@ -37,23 +41,7 @@
     { label: "Sun", value: Weekday.SUNDAY },
   ];
 
-  const TIMEZONES: string[] = Intl.supportedValuesOf("timeZone");
   const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  const TIMEZONE_GROUPS: [string, string[]][] = (() => {
-    const groups: Record<string, string[]> = {};
-    for (const tz of TIMEZONES) {
-      const slash = tz.indexOf("/");
-      const region = slash === -1 ? "Other" : tz.slice(0, slash);
-      (groups[region] ??= []).push(tz);
-    }
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  })();
-
-  function tzLabel(tz: string): string {
-    const last = tz.lastIndexOf("/");
-    return (last === -1 ? tz : tz.slice(last + 1)).replaceAll("_", " ");
-  }
 
   const client = createPromiseClient(AuthService, transport);
 
@@ -68,9 +56,6 @@
 
   // Step 2: Schedule
   let timezone = $state(LOCAL_TZ);
-  const selectTimezoneTriggerContent = $derived(
-    TIMEZONES.find((tz) => tz === timezone) ?? "Select a timezone",
-  );
   let workHours = $state(8);
   let workMinutes = $state(0);
   let lunchMinutes = $state(30);
@@ -245,58 +230,19 @@
           <div class="flex flex-col gap-4 pt-2">
             <div class="flex flex-col gap-2">
               <Label for="timezone">Time zone</Label>
-              <Select.Root type="single" name="timezone" bind:value={timezone}>
-                <Select.Trigger class="w-full"
-                  >{selectTimezoneTriggerContent}</Select.Trigger
-                >
-                <Select.Content class="max-h-100">
-                  {#each TIMEZONE_GROUPS as [region, tzs]}
-                    <Select.Group>
-                      <Select.Label>{region}</Select.Label>
-                      {#each tzs as tz}
-                        <Select.Item value={tz} label={tzLabel(tz)}>
-                          {tzLabel(tz)}
-                        </Select.Item>
-                      {/each}
-                    </Select.Group>
-                  {/each}
-                </Select.Content>
-              </Select.Root>
+              <TimeZoneSelect bind:value={timezone} />
             </div>
-            <div class="flex flex-col gap-2">
-              <Label>Required work hours per day</Label>
-              <div class="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min="0"
-                  max="23"
-                  bind:value={workHours}
-                  class="w-20 text-center"
+            <div class="grid grid-cols-2 gap-4">
+              <div class="flex flex-col gap-2">
+                <Label>Required work hours per day</Label>
+                <WorkHoursInput
+                  bind:hours={workHours}
+                  bind:minutes={workMinutes}
                 />
-                <span class="text-muted-foreground text-sm">h</span>
-                <Input
-                  type="number"
-                  min="0"
-                  max="59"
-                  step="5"
-                  bind:value={workMinutes}
-                  class="w-20 text-center"
-                />
-                <span class="text-muted-foreground text-sm">min</span>
               </div>
-            </div>
-            <div class="flex flex-col gap-2">
-              <Label>Lunch break</Label>
-              <div class="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min="0"
-                  max="240"
-                  step="5"
-                  bind:value={lunchMinutes}
-                  class="w-24 text-center"
-                />
-                <span class="text-muted-foreground text-sm">minutes</span>
+              <div class="flex flex-col gap-2">
+                <Label>Lunch break</Label>
+                <LunchBreakSelect bind:value={lunchMinutes} />
               </div>
             </div>
             <div class="flex flex-col gap-2">
