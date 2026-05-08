@@ -40,8 +40,16 @@ async fn main() -> Result<()> {
   let pool = sqlx::PgPool::connect(&args.database_url).await?;
   sqlx::migrate!("./migrations").run(&pool).await?;
 
-  let auth_service = services::AuthServiceImpl::new(pool, args.jwt_secret);
-  let svc = taptime_schema::services::auth_service_server::AuthServiceServer::new(auth_service);
+  let auth_service = services::AuthServiceImpl::new(pool.clone(), args.jwt_secret.clone());
+  let store_service = services::StoreServiceImpl::new(pool);
+
+  let auth_svc =
+    taptime_schema::services::auth_service_server::AuthServiceServer::new(auth_service);
+  let store_svc =
+    taptime_schema::services::store_service_server::StoreServiceServer::with_interceptor(
+      store_service,
+      interceptors::AuthInterceptor::new(args.jwt_secret),
+    );
 
   let cors = tower_http::cors::CorsLayer::new()
     .allow_origin(tower_http::cors::Any)
@@ -59,7 +67,8 @@ async fn main() -> Result<()> {
     .accept_http1(true)
     .layer(cors)
     .layer(tonic_web::GrpcWebLayer::new())
-    .add_service(svc)
+    .add_service(auth_svc)
+    .add_service(store_svc)
     .serve(args.address)
     .await?;
 

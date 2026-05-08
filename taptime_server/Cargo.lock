@@ -2315,6 +2315,7 @@ dependencies = [
  "http",
  "jsonwebtoken",
  "password-hash 0.6.1",
+ "prost-types",
  "rand 0.9.4",
  "semver",
  "serde",
