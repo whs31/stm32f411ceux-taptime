@@ -17,11 +17,16 @@
   );
 </script>
 
-<Select.Root type="single" name="lunchBreak" bind:value>
+<Select.Root
+  type="single"
+  name="lunchBreak"
+  value={String(value)}
+  onValueChange={(v) => { value = v !== undefined ? Number(v) : 0; }}
+>
   <Select.Trigger class="w-full">{triggerContent}</Select.Trigger>
   <Select.Content class="max-h-100">
     {#each LUNCH_BREAK_DURATIONS as v (v.value)}
-      <Select.Item value={v.value} label={v.label}>
+      <Select.Item value={String(v.value)} label={v.label}>
         {v.label}
       </Select.Item>
     {/each}

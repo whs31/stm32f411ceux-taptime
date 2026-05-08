@@ -41,20 +41,20 @@
           {#snippet child({ props })}
             <Sidebar.MenuButton
               {...props}
-              size="xl"
+              size="lg"
               class="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Avatar.Root class="size-8 rounded-lg grayscale">
                 <Avatar.Fallback class="rounded-lg">CN</Avatar.Fallback>
               </Avatar.Root>
               <div class="grid flex-1 text-start text-sm leading-tight">
-                <span class="truncate font-medium">{userStore.user.name}</span>
+                <span class="truncate font-medium">{userStore.user!.name}</span>
                 <span class="text-muted-foreground truncate text-xs">
-                  {userStore.user.email}
+                  {userStore.user!.email}
                 </span>
-                {#if userStore.user.organization}
+                {#if userStore.user!.organization}
                   <span class="text-muted-foreground truncate text-xs">
-                    {userStore.user.organization}
+                    {userStore.user!.organization}
                   </span>
                 {/if}
               </div>
@@ -74,9 +74,9 @@
                 <Avatar.Fallback class="rounded-lg">CN</Avatar.Fallback>
               </Avatar.Root>
               <div class="grid flex-1 text-start text-sm leading-tight">
-                <span class="truncate font-medium">{userStore.user.name}</span>
+                <span class="truncate font-medium">{userStore.user!.name}</span>
                 <span class="text-muted-foreground truncate text-xs">
-                  {userStore.user.email}
+                  {userStore.user!.email}
                 </span>
               </div>
             </div>

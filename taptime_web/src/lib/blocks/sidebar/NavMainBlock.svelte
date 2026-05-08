@@ -1,8 +1,9 @@
 <script lang="ts">
   import * as Sidebar from "$lib/components/ui/sidebar/index.js";
-  import type { Icon } from "@lucide/svelte";
+  import type { Component } from "svelte";
+  import type { LucideProps } from "@lucide/svelte";
 
-  let { items }: { items: { title: string; url: string; icon?: Icon }[] } =
+  let { items }: { items: { title: string; url: string; icon?: Component<LucideProps> }[] } =
     $props();
 </script>
 

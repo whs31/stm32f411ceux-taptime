@@ -7,7 +7,7 @@
 
 	let { id = uid, class: className, children, ...rest }: StepperItemProps = $props();
 
-	const stepperItemState = useStepperItem({ id });
+	const stepperItemState = useStepperItem({ get id() { return id; } });
 </script>
 
 <div

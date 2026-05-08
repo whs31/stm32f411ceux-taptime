@@ -199,7 +199,6 @@
               <Password.Root>
                 <Password.Input
                   bind:value={confirmPassword}
-                  aria-invalid={confirmPassword.length > 0 && !passwordsMatch}
                 >
                   <Password.ToggleVisibility />
                 </Password.Input>
