@@ -2,6 +2,7 @@
   import * as Card from "$lib/components/ui/card/index.js";
   import * as Stepper from "$lib/components/ui/stepper";
   import * as Alert from "$lib/components/ui/alert/index.js";
+  import * as Select from "$lib/components/ui/select/index.js";
   import {
     CircleAlert,
     UserIcon,
@@ -41,7 +42,7 @@
 
   const client = createPromiseClient(AuthService, transport);
 
-  let step = $state(1);
+  let step = $state(2);
 
   // Step 1: Credentials
   let name = $state("");
@@ -52,9 +53,12 @@
 
   // Step 2: Schedule
   let timezone = $state(LOCAL_TZ);
+  const selectTimezoneTriggerContent = $derived(
+    TIMEZONES.find((tz) => tz === timezone) ?? "Select a timezone",
+  );
   let workHours = $state(8);
   let workMinutes = $state(0);
-  let lunchMinutes = $state(60);
+  let lunchMinutes = $state(30);
   let weekends = $state<Weekday[]>([Weekday.SATURDAY, Weekday.SUNDAY]);
   let remoteDays = $state<Weekday[]>([]);
 
@@ -226,15 +230,21 @@
           <div class="flex flex-col gap-4 pt-2">
             <div class="flex flex-col gap-2">
               <Label for="timezone">Time zone</Label>
-              <select
-                id="timezone"
-                bind:value={timezone}
-                class="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {#each TIMEZONES as tz}
-                  <option value={tz}>{tz}</option>
-                {/each}
-              </select>
+              <Select.Root type="single" name="timezone" bind:value={timezone}>
+                <Select.Trigger class="w-full"
+                  >{selectTimezoneTriggerContent}</Select.Trigger
+                >
+                <Select.Content class="max-h-100">
+                  <Select.Group>
+                    <Select.Label>Timezones</Select.Label>
+                    {#each TIMEZONES as tz}
+                      <Select.Item value={tz} label={tz}>
+                        {tz}
+                      </Select.Item>
+                    {/each}
+                  </Select.Group>
+                </Select.Content>
+              </Select.Root>
             </div>
             <div class="flex flex-col gap-2">
               <Label>Required work hours per day</Label>
