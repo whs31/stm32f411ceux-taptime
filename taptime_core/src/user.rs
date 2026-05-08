@@ -60,7 +60,11 @@ impl User {
       date,
       events: vec![],
       flags,
-      required_work_hours: self.settings.required_work_hours, // todo
+      required_work_hours: if flags.contains(DayFlags::WEEKEND) {
+        chrono::Duration::zero()
+      } else {
+        self.settings.required_work_hours
+      },
       lunch_break_duration: self.settings.lunch_break_duration,
     }
   }
