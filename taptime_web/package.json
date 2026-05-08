@@ -15,6 +15,7 @@
     "@connectrpc/connect": "^1.7.0",
     "@connectrpc/connect-web": "^1.7.0",
     "@taptime/proto": "file:../taptime_proto",
+    "date-fns": "^4.1.0",
     "i18n-js": "^4.5.3"
   },
   "devDependencies": {
