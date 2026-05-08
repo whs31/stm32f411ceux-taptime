@@ -22,19 +22,21 @@
   let workSeconds = $state(0);
 
   const events = $derived(day?.events ?? []);
-  const lastEvent = $derived(events.length > 0 ? events[events.length - 1] : null);
-  const isCheckedIn = $derived(lastEvent?.eventType.case === "checkIn");
-  const firstCheckIn = $derived(
-    events.find((e) => e.eventType.case === "checkIn")?.eventType.value,
+  const isCheckedIn = $derived(
+    events.length > 0 && events[events.length - 1].eventType.case === "checkIn",
   );
-  const lastCheckOut = $derived(
-    [...events].reverse().find((e) => e.eventType.case === "checkOut")
-      ?.eventType.value,
+  const requiredSeconds = $derived(
+    Number(day?.requiredWorkHours?.seconds ?? 0n),
   );
-  const requiredSeconds = $derived(Number(day?.requiredWorkHours?.seconds ?? 0n));
-  const lunchSeconds = $derived(Number(day?.lunchBreakDuration?.seconds ?? 0n));
 
-  function tzTimeParts(): { h: number; m: number; s: number } {
+  function getTz(): string {
+    return (
+      userStore.user?.timeZone?.timeZone ??
+      Intl.DateTimeFormat().resolvedOptions().timeZone
+    );
+  }
+
+  function tzTimeParts(tz: string): { h: number; m: number; s: number } {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: tz,
       hour: "2-digit",
@@ -62,25 +64,37 @@
     return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
   }
 
-  function computeWorkSeconds(): number {
-    if (isCheckedIn && firstCheckIn) {
-      const { h, m, s } = tzTimeParts();
-      const nowSecs = h * 3600 + m * 60 + s;
-      return Math.max(0, nowSecs - ltToSeconds(firstCheckIn) - lunchSeconds);
+  // Reads directly from $state `day` — avoids stale $derived reads from setInterval.
+  function computeWorkSeconds(d: Day | null): number {
+    if (!d) return 0;
+    const evts = d.events;
+    if (!evts.length) return 0;
+
+    const firstInEvt = evts.find((e) => e.eventType.case === "checkIn");
+    if (!firstInEvt || firstInEvt.eventType.case !== "checkIn") return 0;
+    const checkInSecs = ltToSeconds(firstInEvt.eventType.value);
+    const lunchSecs = Number(d.lunchBreakDuration?.seconds ?? 0n);
+
+    const lastEvt = evts[evts.length - 1];
+    if (lastEvt.eventType.case === "checkIn") {
+      const { h, m, s } = tzTimeParts(getTz());
+      return Math.max(0, h * 3600 + m * 60 + s - checkInSecs - lunchSecs);
     }
-    if (!isCheckedIn && firstCheckIn && lastCheckOut) {
-      return Math.max(
-        0,
-        ltToSeconds(lastCheckOut) - ltToSeconds(firstCheckIn) - lunchSeconds,
-      );
-    }
-    return 0;
+
+    const lastOutEvt = [...evts]
+      .reverse()
+      .find((e) => e.eventType.case === "checkOut");
+    if (!lastOutEvt || lastOutEvt.eventType.case !== "checkOut") return 0;
+    return Math.max(
+      0,
+      ltToSeconds(lastOutEvt.eventType.value) - checkInSecs - lunchSecs,
+    );
   }
 
   function tick() {
-    const { h, m, s } = tzTimeParts();
+    const { h, m, s } = tzTimeParts(getTz());
     currentTimeDisplay = `${pad(h)}:${pad(m)}:${pad(s)}`;
-    workSeconds = computeWorkSeconds();
+    workSeconds = computeWorkSeconds(day);
   }
 
   async function loadDay() {
@@ -139,7 +153,9 @@
 <div class="py-4 flex flex-col gap-6">
   <div>
     <h2 class="text-2xl font-semibold tracking-tight">Dashboard</h2>
-    <p class="mt-1 text-muted-foreground">Overview of your time tracking activity.</p>
+    <p class="mt-1 text-muted-foreground">
+      Overview of your time tracking activity.
+    </p>
   </div>
 
   <Card.Root class="w-full max-w-sm">
@@ -151,8 +167,12 @@
     <Card.Content class="flex flex-col gap-5">
       <!-- Current time -->
       <div class="flex flex-col gap-0.5">
-        <span class="text-muted-foreground text-xs uppercase tracking-widest">Current time</span>
-        <span class="font-mono text-4xl font-semibold tabular-nums tracking-tight">
+        <span class="text-muted-foreground text-xs uppercase tracking-widest"
+          >Current time</span
+        >
+        <span
+          class="font-mono text-4xl font-semibold tabular-nums tracking-tight"
+        >
           {currentTimeDisplay}
         </span>
       </div>
@@ -166,7 +186,9 @@
       {:else}
         <!-- Work time -->
         <div class="flex flex-col gap-0.5">
-          <span class="text-muted-foreground text-xs uppercase tracking-widest">Work time</span>
+          <span class="text-muted-foreground text-xs uppercase tracking-widest"
+            >Work time</span
+          >
           <span
             class="font-mono text-4xl font-semibold tabular-nums tracking-tight transition-colors {isCheckedIn
               ? 'text-primary'
@@ -179,7 +201,9 @@
         <!-- Progress -->
         <div class="flex flex-col gap-2">
           <Progress value={progressPercent} max={100} class="h-1.5" />
-          <div class="flex justify-between text-xs tabular-nums text-muted-foreground">
+          <div
+            class="flex justify-between text-xs tabular-nums text-muted-foreground"
+          >
             <span>{formatSeconds(workSeconds)}</span>
             <span>{formatSeconds(requiredSeconds)}</span>
           </div>

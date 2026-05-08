@@ -21,7 +21,7 @@ async function fetchUser(): Promise<void> {
 function clearUser(): void {
   _user = null;
   _error = null;
-  AuthService.clearStoredJwt();
+  AuthService.logout();
 }
 
 export const userStore = {

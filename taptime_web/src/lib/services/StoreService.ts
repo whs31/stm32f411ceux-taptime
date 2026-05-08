@@ -1,4 +1,4 @@
-import { createPromiseClient } from "@connectrpc/connect";
+import { createClient } from "@connectrpc/connect";
 import { StoreService as StoreServiceRpc } from "@taptime/proto/taptime/services/store_connect.js";
 import { Date as ProtoDate } from "@taptime/proto/taptime/date_pb.js";
 import { LocalTime } from "@taptime/proto/taptime/local_time_pb.js";
@@ -7,15 +7,9 @@ import { transport } from "$lib/grpc";
 import { AuthService } from "./AuthService";
 
 export class StoreService {
-  private static client = createPromiseClient(StoreServiceRpc, transport);
+  private static client = createClient(StoreServiceRpc, transport);
 
-  private static authHeaders() {
-    const jwt = AuthService.getStoredJwt();
-    if (!jwt) throw new Error("Not authenticated");
-    return { authorization: `Bearer ${jwt}` };
-  }
-
-  static todayProtoDate(tz: string): ProtoDate {
+  static currentDate(tz: string): ProtoDate {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: tz,
       year: "numeric",
@@ -29,7 +23,7 @@ export class StoreService {
     return new ProtoDate({ daysSinceEpoch: Math.floor(utcMs / 86_400_000) });
   }
 
-  static nowLocalTime(tz: string): LocalTime {
+  static currentTime(tz: string): LocalTime {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: tz,
       hour: "2-digit",
@@ -45,18 +39,18 @@ export class StoreService {
   }
 
   static async getDay(date: ProtoDate) {
-    return this.client.getDay(date, { headers: this.authHeaders() });
+    return this.client.getDay(date, { headers: AuthService.authHeaders() });
   }
 
   static async addCheckIn(date: ProtoDate, time: LocalTime) {
     return this.client.addCheckIn(new EventRequest({ date, time }), {
-      headers: this.authHeaders(),
+      headers: AuthService.authHeaders(),
     });
   }
 
   static async addCheckOut(date: ProtoDate, time: LocalTime) {
     return this.client.addCheckOut(new EventRequest({ date, time }), {
-      headers: this.authHeaders(),
+      headers: AuthService.authHeaders(),
     });
   }
 }
