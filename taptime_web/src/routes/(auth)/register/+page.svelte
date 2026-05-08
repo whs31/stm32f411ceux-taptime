@@ -35,7 +35,7 @@
 
   const client = createPromiseClient(AuthService, transport);
 
-  let step = $state(2);
+  let step = $state(1);
 
   // Step 1: Credentials
   let name = $state("");
@@ -75,6 +75,17 @@
   const nextDisabled = $derived(
     (step === 1 && !step1Valid) || (step === 2 && !step2Valid),
   );
+
+  const DAY_LABELS: Record<Weekday, string> = {
+    [Weekday.MONDAY]: "Mon",
+    [Weekday.TUESDAY]: "Tue",
+    [Weekday.WEDNESDAY]: "Wed",
+    [Weekday.THURSDAY]: "Thu",
+    [Weekday.FRIDAY]: "Fri",
+    [Weekday.SATURDAY]: "Sat",
+    [Weekday.SUNDAY]: "Sun",
+    [Weekday.UNSPECIFIED]: "",
+  };
 
   async function submit() {
     submitting = true;
@@ -268,16 +279,12 @@
               </p>
               <p class="text-muted-foreground">
                 Weekends: {weekends.length > 0
-                  ? WEEKDAYS.filter((d) => weekends.includes(d.value))
-                      .map((d) => d.label)
-                      .join(", ")
+                  ? weekends.map((d) => DAY_LABELS[d]).join(", ")
                   : "none"}
               </p>
               {#if remoteDays.length > 0}
                 <p class="text-muted-foreground">
-                  Remote: {WEEKDAYS.filter((d) => remoteDays.includes(d.value))
-                    .map((d) => d.label)
-                    .join(", ")}
+                  Remote: {remoteDays.map((d) => DAY_LABELS[d]).join(", ")}
                 </p>
               {/if}
             </div>

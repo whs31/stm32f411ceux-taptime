@@ -60,7 +60,7 @@ impl User {
       date,
       events: vec![],
       flags,
-      required_work_hours: self.settings.required_work_hours,
+      required_work_hours: self.settings.required_work_hours, // todo
       lunch_break_duration: self.settings.lunch_break_duration,
     }
   }

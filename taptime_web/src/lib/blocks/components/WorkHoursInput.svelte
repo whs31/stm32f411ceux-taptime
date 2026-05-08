@@ -13,6 +13,7 @@
     min="0"
     max="23"
     bind:value={hours}
+    oninput={() => { hours = Math.min(23, Math.max(0, hours)); }}
     class="w-20 text-center"
   />
   <span class="text-muted-foreground text-sm">h</span>
@@ -22,6 +23,7 @@
     max="59"
     step="5"
     bind:value={minutes}
+    oninput={() => { minutes = Math.min(59, Math.max(0, minutes)); }}
     class="w-20 text-center"
   />
   <span class="text-muted-foreground text-sm">min</span>
