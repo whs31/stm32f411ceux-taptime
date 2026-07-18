@@ -7,6 +7,8 @@ import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialM
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
 import { User } from "../user_pb.js";
 import { Uuid } from "../uuid_pb.js";
+import { Date } from "../date_pb.js";
+import { DaySummary, MonthlyStats } from "./store_pb.js";
 
 /**
  * @generated from enum com.whs31.taptime.services.BanKind
@@ -350,6 +352,110 @@ export class AdminUserDetail extends Message<AdminUserDetail> {
 
   static equals(a: AdminUserDetail | PlainMessage<AdminUserDetail> | undefined, b: AdminUserDetail | PlainMessage<AdminUserDetail> | undefined): boolean {
     return proto3.util.equals(AdminUserDetail, a, b);
+  }
+}
+
+/**
+ * @generated from message com.whs31.taptime.services.GetUserStatsRequest
+ */
+export class GetUserStatsRequest extends Message<GetUserStatsRequest> {
+  /**
+   * @generated from field: com.whs31.taptime.Uuid user_id = 1;
+   */
+  userId?: Uuid;
+
+  constructor(data?: PartialMessage<GetUserStatsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "com.whs31.taptime.services.GetUserStatsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "message", T: Uuid },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetUserStatsRequest {
+    return new GetUserStatsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetUserStatsRequest {
+    return new GetUserStatsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetUserStatsRequest {
+    return new GetUserStatsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetUserStatsRequest | PlainMessage<GetUserStatsRequest> | undefined, b: GetUserStatsRequest | PlainMessage<GetUserStatsRequest> | undefined): boolean {
+    return proto3.util.equals(GetUserStatsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message com.whs31.taptime.services.AdminUserStats
+ */
+export class AdminUserStats extends Message<AdminUserStats> {
+  /**
+   * @generated from field: com.whs31.taptime.Date today = 1;
+   */
+  today?: Date;
+
+  /**
+   * @generated from field: com.whs31.taptime.Date overall_start = 2;
+   */
+  overallStart?: Date;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp generated_at = 3;
+   */
+  generatedAt?: Timestamp;
+
+  /**
+   * @generated from field: com.whs31.taptime.services.DaySummary today_summary = 4;
+   */
+  todaySummary?: DaySummary;
+
+  /**
+   * @generated from field: com.whs31.taptime.services.MonthlyStats month_to_date = 5;
+   */
+  monthToDate?: MonthlyStats;
+
+  /**
+   * @generated from field: com.whs31.taptime.services.MonthlyStats overall = 6;
+   */
+  overall?: MonthlyStats;
+
+  constructor(data?: PartialMessage<AdminUserStats>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "com.whs31.taptime.services.AdminUserStats";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "today", kind: "message", T: Date },
+    { no: 2, name: "overall_start", kind: "message", T: Date },
+    { no: 3, name: "generated_at", kind: "message", T: Timestamp },
+    { no: 4, name: "today_summary", kind: "message", T: DaySummary },
+    { no: 5, name: "month_to_date", kind: "message", T: MonthlyStats },
+    { no: 6, name: "overall", kind: "message", T: MonthlyStats },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AdminUserStats {
+    return new AdminUserStats().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AdminUserStats {
+    return new AdminUserStats().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AdminUserStats {
+    return new AdminUserStats().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AdminUserStats | PlainMessage<AdminUserStats> | undefined, b: AdminUserStats | PlainMessage<AdminUserStats> | undefined): boolean {
+    return proto3.util.equals(AdminUserStats, a, b);
   }
 }
 

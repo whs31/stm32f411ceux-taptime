@@ -8,6 +8,7 @@ taptime_schema = { path = "../taptime_schema", features = ["client"] }
 
 argon2 = "0.5"
 chrono = "0.4"
+chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "color", "env"] }
 crossterm = "0.28"
 prost-types = { version = "0.14", features = ["chrono"] }

@@ -1,7 +1,11 @@
-use std::{error::Error, io, time::Duration};
+use std::{
+    error::Error,
+    io,
+    time::{Duration, Instant},
+};
 
 use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
-use chrono::{TimeZone, Utc};
+use chrono::{NaiveDate, TimeZone, Timelike, Utc};
 use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
@@ -18,11 +22,13 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
 use taptime_schema::{
-    User, Uuid as ProtoUuid,
+    Day, DayFlag, User, Uuid as ProtoUuid,
+    balance::BalanceType,
+    event::EventType,
     services::{
-        AdminLoginRequest, AdminUserDetail, BanKind, BanRecord, CreateBanRequest,
-        DeleteUserRequest, ListBansRequest, ListUsersRequest, RevokeBanRequest,
-        admin_service_client::AdminServiceClient,
+        AdminLoginRequest, AdminUserDetail, AdminUserStats, BanKind, BanRecord, CreateBanRequest,
+        DaySummary, DeleteUserRequest, GetUserStatsRequest, ListBansRequest, ListUsersRequest,
+        MonthlyStats, RevokeBanRequest, admin_service_client::AdminServiceClient,
     },
 };
 use tonic::{Request, metadata::MetadataValue, transport::Channel};
@@ -53,6 +59,21 @@ enum Command {
 enum Tab {
     Users,
     Bans,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UserPane {
+    Account,
+    Stats,
+}
+
+impl UserPane {
+    fn toggled(self) -> Self {
+        match self {
+            Self::Account => Self::Stats,
+            Self::Stats => Self::Account,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -101,6 +122,10 @@ struct App {
     users: Vec<taptime_schema::services::AdminUserListItem>,
     bans: Vec<BanRecord>,
     detail: Option<AdminUserDetail>,
+    stats: Option<AdminUserStats>,
+    user_pane: UserPane,
+    stats_scroll: u16,
+    stats_last_loaded: Option<Instant>,
     query: String,
     selected_user: usize,
     selected_ban: usize,
@@ -117,6 +142,10 @@ impl App {
             users: Vec::new(),
             bans: Vec::new(),
             detail: None,
+            stats: None,
+            user_pane: UserPane::Account,
+            stats_scroll: 0,
+            stats_last_loaded: None,
             query: String::new(),
             selected_user: 0,
             selected_ban: 0,
@@ -137,18 +166,59 @@ impl App {
         if self.selected_ban >= self.bans.len() {
             self.selected_ban = self.bans.len().saturating_sub(1);
         }
-        self.load_selected_detail().await?;
+        self.load_selected_user().await?;
         self.status = "Refreshed".to_string();
+        Ok(())
+    }
+
+    async fn load_selected_user(&mut self) -> AppResult<()> {
+        self.load_selected_detail().await?;
+        self.stats_scroll = 0;
+        if self.user_pane == UserPane::Stats {
+            self.load_selected_stats().await?;
+        } else {
+            self.stats = None;
+            self.stats_last_loaded = None;
+        }
         Ok(())
     }
 
     async fn load_selected_detail(&mut self) -> AppResult<()> {
         let Some(user_id) = self.selected_user_id() else {
             self.detail = None;
+            self.stats = None;
+            self.stats_last_loaded = None;
             return Ok(());
         };
         self.detail = Some(self.client.get_user_detail(user_id).await?);
         Ok(())
+    }
+
+    async fn load_selected_stats(&mut self) -> AppResult<()> {
+        let Some(user_id) = self.selected_user_id() else {
+            self.stats = None;
+            self.stats_last_loaded = None;
+            return Ok(());
+        };
+        let stats = self.client.get_user_stats(user_id).await?;
+        self.status = format!("Stats synchronized at {}", fmt_ts(stats.generated_at));
+        self.stats = Some(stats);
+        self.stats_last_loaded = Some(Instant::now());
+        self.clamp_stats_scroll();
+        Ok(())
+    }
+
+    fn stats_refresh_due(&self) -> bool {
+        self.tab == Tab::Users
+            && self.user_pane == UserPane::Stats
+            && self
+                .stats_last_loaded
+                .is_none_or(|loaded| loaded.elapsed() >= Duration::from_secs(30))
+    }
+
+    fn clamp_stats_scroll(&mut self) {
+        let line_count = self.stats.as_ref().map(stats_line_count).unwrap_or(0);
+        self.stats_scroll = clamp_scroll(self.stats_scroll, line_count);
     }
 
     fn selected_user_id(&self) -> Option<ProtoUuid> {
@@ -235,6 +305,22 @@ impl App {
             }
             KeyCode::Char('r') => self.refresh().await?,
             KeyCode::Enter if self.tab == Tab::Users => self.load_selected_detail().await?,
+            KeyCode::Char('s') if self.tab == Tab::Users => {
+                self.user_pane = self.user_pane.toggled();
+                self.stats_scroll = 0;
+                if self.user_pane == UserPane::Stats {
+                    self.load_selected_stats().await?;
+                } else {
+                    self.status = "Showing account details".to_string();
+                }
+            }
+            KeyCode::PageUp if self.tab == Tab::Users && self.user_pane == UserPane::Stats => {
+                self.stats_scroll = self.stats_scroll.saturating_sub(6);
+            }
+            KeyCode::PageDown if self.tab == Tab::Users && self.user_pane == UserPane::Stats => {
+                self.stats_scroll = self.stats_scroll.saturating_add(6);
+                self.clamp_stats_scroll();
+            }
             KeyCode::Char('b') if self.tab == Tab::Users => {
                 if let Some(user_id) = self.selected_user_id() {
                     self.mode = Mode::Confirm {
@@ -260,14 +346,14 @@ impl App {
                 }
             }
             KeyCode::Char('u') if self.tab == Tab::Bans => {
-                if let Some(ban) = self.selected_ban() {
-                    if let Some(ban_id) = ban.id {
-                        let kind = BanKind::try_from(ban.kind).unwrap_or(BanKind::Unspecified);
-                        self.mode = Mode::Confirm {
-                            action: Action::RevokeBan(kind, ban_id),
-                            input: String::new(),
-                        };
-                    }
+                if let Some(ban) = self.selected_ban()
+                    && let Some(ban_id) = ban.id
+                {
+                    let kind = BanKind::try_from(ban.kind).unwrap_or(BanKind::Unspecified);
+                    self.mode = Mode::Confirm {
+                        action: Action::RevokeBan(kind, ban_id),
+                        input: String::new(),
+                    };
                 }
             }
             KeyCode::Up => self.move_selection(-1).await?,
@@ -281,7 +367,7 @@ impl App {
         match self.tab {
             Tab::Users => {
                 self.selected_user = move_index(self.selected_user, self.users.len(), delta);
-                self.load_selected_detail().await?;
+                self.load_selected_user().await?;
             }
             Tab::Bans => {
                 self.selected_ban = move_index(self.selected_ban, self.bans.len(), delta);
@@ -368,6 +454,16 @@ impl AdminClient {
                     user_id: Some(user_id),
                 })?,
             )
+            .await?
+            .into_inner())
+    }
+
+    async fn get_user_stats(&mut self, user_id: ProtoUuid) -> AppResult<AdminUserStats> {
+        Ok(self
+            .inner
+            .get_user_stats(self.request(GetUserStatsRequest {
+                user_id: Some(user_id),
+            })?)
             .await?
             .into_inner())
     }
@@ -472,12 +568,17 @@ async fn run_tui(client: AdminClient) -> AppResult<()> {
         if app.should_quit {
             break Ok(());
         }
-        if event::poll(Duration::from_millis(150))? {
-            if let Event::Key(key) = event::read()? {
-                if let Err(err) = app.handle_key(key).await {
-                    app.status = err.to_string();
-                }
-            }
+        if app.stats_refresh_due()
+            && let Err(err) = app.load_selected_stats().await
+        {
+            app.status = format!("Stats refresh failed: {err}");
+            app.stats_last_loaded = Some(Instant::now());
+        }
+        if event::poll(Duration::from_millis(150))?
+            && let Event::Key(key) = event::read()?
+            && let Err(err) = app.handle_key(key).await
+        {
+            app.status = err.to_string();
         }
     };
 
@@ -549,12 +650,27 @@ fn draw_users(frame: &mut Frame, area: Rect, app: &App) {
         .highlight_style(Style::default().bg(Color::DarkGray));
     frame.render_stateful_widget(list, list_area, &mut state);
 
-    let detail = match &app.detail {
-        Some(detail) => detail_lines(detail),
-        None => vec![Line::from("No user selected")],
+    let (title, detail, scroll) = match app.user_pane {
+        UserPane::Account => (
+            "Account",
+            match &app.detail {
+                Some(detail) => detail_lines(detail),
+                None => vec![Line::from("No user selected")],
+            },
+            0,
+        ),
+        UserPane::Stats => (
+            "Stats",
+            match (&app.stats, &app.detail) {
+                (Some(stats), Some(detail)) => stats_lines(stats, detail.user.as_ref()),
+                _ => vec![Line::from("No user statistics loaded")],
+            },
+            app.stats_scroll,
+        ),
     };
     let paragraph = Paragraph::new(detail)
-        .block(Block::default().borders(Borders::ALL).title("Detail"))
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .scroll((scroll, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, detail_area);
 }
@@ -584,7 +700,7 @@ fn draw_bans(frame: &mut Frame, area: Rect, app: &App) {
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     let help = match app.tab {
         Tab::Users => {
-            "q quit | tab bans | / search | r refresh | b ban user | p ban ip | d delete data | x delete account"
+            "q quit | tab bans | s account/stats | pgup/pgdn scroll | / search | r refresh | b ban | p ban ip | d data | x account"
         }
         Tab::Bans => "q quit | tab users | r refresh | u revoke selected ban | p ban ip",
     };
@@ -613,6 +729,356 @@ fn draw_mode(frame: &mut Frame, app: &App) {
             .alignment(Alignment::Center),
         area,
     );
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct LiveDayMetrics {
+    clocked: i64,
+    presence: i64,
+    balance: i64,
+    first_check_in: Option<i64>,
+    last_check_out: Option<i64>,
+    checked_in: bool,
+}
+
+fn stats_line_count(stats: &AdminUserStats) -> usize {
+    40 + stats
+        .today_summary
+        .as_ref()
+        .and_then(|summary| summary.day.as_ref())
+        .map(|day| day.events.len().max(1))
+        .unwrap_or(1)
+}
+
+fn clamp_scroll(scroll: u16, line_count: usize) -> u16 {
+    scroll.min(line_count.saturating_sub(1) as u16)
+}
+
+fn stats_lines(stats: &AdminUserStats, user: Option<&User>) -> Vec<Line<'static>> {
+    let Some(summary) = stats.today_summary.as_ref() else {
+        return vec![Line::from("Missing today's summary")];
+    };
+    let Some(day) = summary.day.as_ref() else {
+        return vec![Line::from("Missing today's day")];
+    };
+
+    let now_seconds = user
+        .and_then(user_time_zone)
+        .map(|time_zone| {
+            let time = Utc::now().with_timezone(&time_zone).time();
+            i64::from(time.num_seconds_from_midnight())
+        })
+        .unwrap_or_else(|| i64::from(Utc::now().time().num_seconds_from_midnight()));
+    let live = live_day_metrics(summary, now_seconds);
+    let (month_clocked, month_overtime, month_undertime) =
+        live_aggregate(stats.month_to_date.as_ref(), summary, live, true);
+    let overall_includes_today = match (&stats.overall_start, &stats.today) {
+        (Some(start), Some(today)) => start.days_since_epoch <= today.days_since_epoch,
+        _ => true,
+    };
+    let (overall_clocked, overall_overtime, overall_undertime) = live_aggregate(
+        stats.overall.as_ref(),
+        summary,
+        live,
+        overall_includes_today,
+    );
+
+    let status = if live.checked_in {
+        "Checked in"
+    } else if day.events.is_empty() {
+        "No events"
+    } else {
+        "Checked out"
+    };
+    let target = duration_seconds(summary.work_target.as_ref());
+    let lunch = duration_seconds(day.lunch_break_duration.as_ref());
+    let mut lines = vec![
+        Line::from(format!(
+            "User: {}",
+            user.map(|user| user.name.as_str()).unwrap_or("-")
+        )),
+        Line::from(format!(
+            "Timezone: {}",
+            user.and_then(|user| user.time_zone.as_ref())
+                .map(|time_zone| time_zone.time_zone.as_str())
+                .unwrap_or("UTC")
+        )),
+        Line::from(format!("Updated: {}", fmt_ts(stats.generated_at))),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Today ({})", fmt_date(stats.today.as_ref())),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!("Status: {status}")),
+        Line::from(format!(
+            "Day type: {}",
+            day_kind(day, summary.before_start_date)
+        )),
+        Line::from(format!(
+            "First check-in: {}",
+            fmt_clock(live.first_check_in)
+        )),
+        Line::from(format!("Last checkout: {}", fmt_clock(live.last_check_out))),
+        Line::from(format!("Work: {}", fmt_duration(live.clocked))),
+        Line::from(format!("Presence: {}", fmt_duration(live.presence))),
+        Line::from(format!(
+            "Target: {} (+{} lunch)",
+            fmt_duration(target),
+            fmt_duration(lunch)
+        )),
+        balance_line("Balance", live.balance),
+        Line::from("Events:"),
+    ];
+    if day.events.is_empty() {
+        lines.push(Line::from("  none"));
+    } else {
+        for event in &day.events {
+            let (kind, time) = match event.event_type.as_ref() {
+                Some(EventType::CheckIn(time)) => ("IN ", time_to_seconds(time)),
+                Some(EventType::CheckOut(time)) => ("OUT", time_to_seconds(time)),
+                None => ("?  ", None),
+            };
+            lines.push(Line::from(format!("  {kind} {}", fmt_clock(time))));
+        }
+    }
+
+    push_aggregate_lines(
+        &mut lines,
+        "Month to date",
+        stats.month_to_date.as_ref(),
+        month_clocked,
+        month_overtime,
+        month_undertime,
+    );
+    push_aggregate_lines(
+        &mut lines,
+        &format!("Overall (since {})", fmt_date(stats.overall_start.as_ref())),
+        stats.overall.as_ref(),
+        overall_clocked,
+        overall_overtime,
+        overall_undertime,
+    );
+    lines
+}
+
+fn user_time_zone(user: &User) -> Option<chrono_tz::Tz> {
+    user.time_zone.as_ref()?.time_zone.parse().ok()
+}
+
+fn live_day_metrics(summary: &DaySummary, current_seconds: i64) -> LiveDayMetrics {
+    let Some(day) = summary.day.as_ref() else {
+        return LiveDayMetrics::default();
+    };
+    let mut clocked = 0;
+    let mut open_check_in = None;
+    let mut first_check_in = None;
+    let mut last_check_out = None;
+    for event in &day.events {
+        match event.event_type.as_ref() {
+            Some(EventType::CheckIn(time)) => {
+                let seconds = time_to_seconds(time);
+                first_check_in = first_check_in.or(seconds);
+                open_check_in = seconds;
+            }
+            Some(EventType::CheckOut(time)) => {
+                let seconds = time_to_seconds(time);
+                last_check_out = seconds;
+                if let (Some(check_in), Some(check_out)) = (open_check_in.take(), seconds) {
+                    clocked += (check_out - check_in).max(0);
+                }
+            }
+            None => {}
+        }
+    }
+    if let Some(check_in) = open_check_in {
+        clocked += (current_seconds - check_in).max(0);
+    }
+    let checked_in = open_check_in.is_some();
+    let presence = match first_check_in {
+        None => 0,
+        Some(first) if checked_in => (current_seconds - first).max(0),
+        Some(first) => last_check_out
+            .map(|last| (last - first).max(0))
+            .unwrap_or(0),
+    };
+    let balance = if summary.before_start_date || !is_regular_required_day(day) {
+        server_balance_seconds(summary)
+    } else {
+        presence - required_presence_seconds(day)
+    };
+    LiveDayMetrics {
+        clocked,
+        presence,
+        balance,
+        first_check_in,
+        last_check_out,
+        checked_in,
+    }
+}
+
+fn live_aggregate(
+    stats: Option<&MonthlyStats>,
+    today: &DaySummary,
+    live: LiveDayMetrics,
+    include_today: bool,
+) -> (i64, i64, i64) {
+    let mut clocked = duration_seconds(stats.and_then(|stats| stats.total_clocked_work.as_ref()));
+    let mut overtime = duration_seconds(stats.and_then(|stats| stats.overtime.as_ref()));
+    let mut undertime = duration_seconds(stats.and_then(|stats| stats.undertime.as_ref()));
+    if include_today {
+        let closed_clocked = duration_seconds(today.clocked_work.as_ref());
+        let closed_balance = server_balance_seconds(today);
+        clocked = (clocked + live.clocked - closed_clocked).max(0);
+        overtime = (overtime + live.balance.max(0) - closed_balance.max(0)).max(0);
+        undertime = (undertime + (-live.balance).max(0) - (-closed_balance).max(0)).max(0);
+    }
+    (clocked, overtime, undertime)
+}
+
+fn push_aggregate_lines(
+    lines: &mut Vec<Line<'static>>,
+    title: &str,
+    stats: Option<&MonthlyStats>,
+    clocked: i64,
+    overtime: i64,
+    undertime: i64,
+) {
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        title.to_string(),
+        Style::default().add_modifier(Modifier::BOLD),
+    )));
+    lines.push(balance_line("Balance", overtime - undertime));
+    lines.push(Line::from(format!("Clocked: {}", fmt_duration(clocked))));
+    lines.push(Line::from(format!("Overtime: {}", fmt_duration(overtime))));
+    lines.push(Line::from(format!(
+        "Undertime: {}",
+        fmt_duration(undertime)
+    )));
+    let stats = stats.cloned().unwrap_or_default();
+    lines.push(Line::from(format!("Worked days: {}", stats.worked_days)));
+    lines.push(Line::from(format!("Remote: {}", stats.remote_days)));
+    lines.push(Line::from(format!("Day off: {}", stats.day_offs)));
+    lines.push(Line::from(format!("Vacation: {}", stats.vacation_days)));
+    lines.push(Line::from(format!("Skipped: {}", stats.skipped_days)));
+    lines.push(Line::from(format!(
+        "Weekend work: {}",
+        stats.full_weekend_work_days
+    )));
+    lines.push(Line::from(format!(
+        "Vacation work: {}",
+        stats.full_vacation_work_days
+    )));
+}
+
+fn duration_seconds(duration: Option<&prost_types::Duration>) -> i64 {
+    duration.map(|duration| duration.seconds).unwrap_or(0)
+}
+
+fn time_to_seconds(time: &taptime_schema::LocalTime) -> Option<i64> {
+    (time.hour < 24 && time.minute < 60 && time.second < 60)
+        .then_some(i64::from(time.hour * 3600 + time.minute * 60 + time.second))
+}
+
+fn required_presence_seconds(day: &Day) -> i64 {
+    let work = duration_seconds(day.required_work_hours.as_ref());
+    if work <= 0 {
+        0
+    } else {
+        work + duration_seconds(day.lunch_break_duration.as_ref())
+    }
+}
+
+fn is_regular_required_day(day: &Day) -> bool {
+    let non_regular = DayFlag::Weekend as u32
+        | DayFlag::DayOff as u32
+        | DayFlag::Remote as u32
+        | DayFlag::Vacation as u32;
+    day.flags & non_regular == 0
+}
+
+fn day_kind(day: &Day, before_start_date: bool) -> String {
+    if before_start_date {
+        return "Before start".to_string();
+    }
+    let mut labels = Vec::new();
+    if day.flags & DayFlag::Weekend as u32 != 0 {
+        labels.push("Weekend");
+    }
+    if day.flags & DayFlag::Remote as u32 != 0 {
+        labels.push("Remote");
+    }
+    if day.flags & DayFlag::DayOff as u32 != 0 {
+        labels.push("Day off");
+    }
+    if day.flags & DayFlag::Vacation as u32 != 0 {
+        labels.push("Vacation");
+    }
+    if labels.is_empty() {
+        "Regular".to_string()
+    } else {
+        labels.join(", ")
+    }
+}
+
+fn server_balance_seconds(summary: &DaySummary) -> i64 {
+    match summary
+        .balance
+        .as_ref()
+        .and_then(|balance| balance.balance_type.as_ref())
+    {
+        Some(BalanceType::Overtime(duration)) => duration.seconds,
+        Some(BalanceType::UnderTime(duration)) => -duration.seconds,
+        _ => 0,
+    }
+}
+
+fn fmt_duration(seconds: i64) -> String {
+    let sign = if seconds < 0 { "-" } else { "" };
+    let seconds = seconds.saturating_abs();
+    format!("{sign}{}h {:02}m", seconds / 3600, seconds % 3600 / 60)
+}
+
+fn fmt_signed_duration(seconds: i64) -> String {
+    if seconds > 0 {
+        format!("+{}", fmt_duration(seconds))
+    } else {
+        fmt_duration(seconds)
+    }
+}
+
+fn balance_line(label: &str, seconds: i64) -> Line<'static> {
+    let color = if seconds > 0 {
+        Color::Green
+    } else if seconds < 0 {
+        Color::Red
+    } else {
+        Color::Reset
+    };
+    Line::from(vec![
+        Span::raw(format!("{label}: ")),
+        Span::styled(fmt_signed_duration(seconds), Style::default().fg(color)),
+    ])
+}
+
+fn fmt_clock(seconds: Option<i64>) -> String {
+    seconds
+        .map(|seconds| {
+            format!(
+                "{:02}:{:02}:{:02}",
+                seconds / 3600,
+                seconds % 3600 / 60,
+                seconds % 60
+            )
+        })
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn fmt_date(value: Option<&taptime_schema::Date>) -> String {
+    value
+        .and_then(|date| NaiveDate::from_epoch_days(date.days_since_epoch))
+        .map(|date| date.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "-".to_string())
 }
 
 fn detail_lines(detail: &AdminUserDetail) -> Vec<Line<'static>> {
@@ -768,6 +1234,55 @@ fn read_password(prompt: &str) -> AppResult<String> {
 mod tests {
     use super::*;
 
+    fn duration(seconds: i64) -> prost_types::Duration {
+        prost_types::Duration { seconds, nanos: 0 }
+    }
+
+    fn local_time(hour: u32, minute: u32) -> taptime_schema::LocalTime {
+        taptime_schema::LocalTime {
+            hour,
+            minute,
+            second: 0,
+        }
+    }
+
+    fn check_in(hour: u32, minute: u32) -> taptime_schema::Event {
+        taptime_schema::Event {
+            id: None,
+            event_type: Some(EventType::CheckIn(local_time(hour, minute))),
+        }
+    }
+
+    fn check_out(hour: u32, minute: u32) -> taptime_schema::Event {
+        taptime_schema::Event {
+            id: None,
+            event_type: Some(EventType::CheckOut(local_time(hour, minute))),
+        }
+    }
+
+    fn summary(events: Vec<taptime_schema::Event>) -> DaySummary {
+        DaySummary {
+            day: Some(Day {
+                date: Some(taptime_schema::Date {
+                    days_since_epoch: 19_723,
+                }),
+                events,
+                flags: 0,
+                required_work_hours: Some(duration(8 * 60 * 60)),
+                lunch_break_duration: Some(duration(30 * 60)),
+            }),
+            clocked_work: Some(duration(60 * 60)),
+            balance: Some(taptime_schema::Balance {
+                balance_type: Some(BalanceType::UnderTime(duration(8 * 60 * 60 + 30 * 60))),
+            }),
+            skipped: false,
+            full_day_worked: false,
+            required_work_hours_overridden: false,
+            work_target: Some(duration(8 * 60 * 60)),
+            before_start_date: false,
+        }
+    }
+
     #[test]
     fn move_index_clamps_to_valid_range() {
         assert_eq!(move_index(0, 0, 1), 0);
@@ -787,5 +1302,88 @@ mod tests {
             "DELETE ACCOUNT"
         );
         assert_eq!(Action::BanIp("127.0.0.1".into()).expected(), "BAN IP");
+    }
+
+    #[test]
+    fn user_pane_toggle_round_trips() {
+        assert_eq!(UserPane::Account.toggled(), UserPane::Stats);
+        assert_eq!(UserPane::Stats.toggled(), UserPane::Account);
+    }
+
+    #[test]
+    fn scroll_is_clamped_to_available_lines() {
+        assert_eq!(clamp_scroll(12, 0), 0);
+        assert_eq!(clamp_scroll(12, 5), 4);
+        assert_eq!(clamp_scroll(3, 5), 3);
+    }
+
+    #[test]
+    fn live_metrics_include_open_session_and_keep_event_order() {
+        let summary = summary(vec![check_in(9, 0), check_out(10, 0), check_in(11, 0)]);
+
+        let metrics = live_day_metrics(&summary, 12 * 60 * 60);
+
+        assert_eq!(metrics.clocked, 2 * 60 * 60);
+        assert_eq!(metrics.presence, 3 * 60 * 60);
+        assert_eq!(metrics.balance, -(5 * 60 * 60 + 30 * 60));
+        assert_eq!(metrics.first_check_in, Some(9 * 60 * 60));
+        assert_eq!(metrics.last_check_out, Some(10 * 60 * 60));
+        assert!(metrics.checked_in);
+
+        let stats = AdminUserStats {
+            today: summary.day.as_ref().and_then(|day| day.date),
+            overall_start: summary.day.as_ref().and_then(|day| day.date),
+            generated_at: None,
+            today_summary: Some(summary),
+            month_to_date: Some(MonthlyStats::default()),
+            overall: Some(MonthlyStats::default()),
+        };
+        let rendered = stats_lines(&stats, None)
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        let first_in = rendered
+            .iter()
+            .position(|line| line.contains("IN  09:00:00"))
+            .unwrap();
+        let checkout = rendered
+            .iter()
+            .position(|line| line.contains("OUT 10:00:00"))
+            .unwrap();
+        let second_in = rendered
+            .iter()
+            .position(|line| line.contains("IN  11:00:00"))
+            .unwrap();
+        assert!(first_in < checkout && checkout < second_in);
+    }
+
+    #[test]
+    fn live_aggregate_replaces_closed_today_contribution() {
+        let summary = summary(vec![check_in(9, 0), check_out(10, 0), check_in(11, 0)]);
+        let metrics = live_day_metrics(&summary, 12 * 60 * 60);
+        let stats = MonthlyStats {
+            total_clocked_work: Some(duration(60 * 60)),
+            overtime: Some(duration(0)),
+            undertime: Some(duration(8 * 60 * 60 + 30 * 60)),
+            ..Default::default()
+        };
+
+        let (clocked, overtime, undertime) = live_aggregate(Some(&stats), &summary, metrics, true);
+
+        assert_eq!(clocked, 2 * 60 * 60);
+        assert_eq!(overtime, 0);
+        assert_eq!(undertime, 5 * 60 * 60 + 30 * 60);
+    }
+
+    #[test]
+    fn signed_duration_format_preserves_balance_sign() {
+        assert_eq!(fmt_signed_duration(3_900), "+1h 05m");
+        assert_eq!(fmt_signed_duration(-3_900), "-1h 05m");
+        assert_eq!(fmt_signed_duration(0), "0h 00m");
     }
 }

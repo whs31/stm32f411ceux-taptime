@@ -18,10 +18,10 @@ struct IpBanRow {
 }
 
 pub fn client_ip<T>(request: &Request<T>, config: AccessConfig) -> Option<IpAddr> {
-  if config.trust_proxy_headers {
-    if let Some(ip) = forwarded_ip(request) {
-      return Some(ip);
-    }
+  if config.trust_proxy_headers
+    && let Some(ip) = forwarded_ip(request)
+  {
+    return Some(ip);
   }
   request.remote_addr().map(|addr| addr.ip())
 }

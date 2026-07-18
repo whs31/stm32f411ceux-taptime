@@ -43,16 +43,17 @@ async fn main() -> Result<()> {
   let access_config = services::AccessConfig {
     trust_proxy_headers: args.trust_proxy_headers,
   };
+  let store_service = services::StoreServiceImpl::new(pool.clone(), access_config);
   let admin_token_ttl = chrono::Duration::seconds(args.admin_token_ttl_seconds.max(60));
   let admin_service = services::AdminServiceImpl::new(
     pool.clone(),
     args.jwt_secret.clone(),
     args.admin_password_hash.clone(),
     admin_token_ttl,
+    store_service.clone(),
   );
   let auth_service =
     services::AuthServiceImpl::new(pool.clone(), args.jwt_secret.clone(), access_config);
-  let store_service = services::StoreServiceImpl::new(pool, access_config);
 
   let admin_svc =
     taptime_schema::services::admin_service_server::AdminServiceServer::new(admin_service);

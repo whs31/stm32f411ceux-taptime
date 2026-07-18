@@ -2,6 +2,8 @@ syntax = "proto3";
 
 import public "google/protobuf/empty.proto";
 import public "google/protobuf/timestamp.proto";
+import public "taptime/date.proto";
+import public "taptime/services/store.proto";
 import public "taptime/user.proto";
 import public "taptime/uuid.proto";
 
@@ -11,6 +13,7 @@ service AdminService {
   rpc AdminLogin(AdminLoginRequest) returns (AdminLoginResponse);
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
   rpc GetUserDetail(GetUserDetailRequest) returns (AdminUserDetail);
+  rpc GetUserStats(GetUserStatsRequest) returns (AdminUserStats);
   rpc ListBans(ListBansRequest) returns (ListBansResponse);
   rpc CreateBan(CreateBanRequest) returns (BanRecord);
   rpc RevokeBan(RevokeBanRequest) returns (BanRecord);
@@ -54,6 +57,19 @@ message AdminUserDetail {
   repeated BanRecord bans = 3;
   int64 event_count = 4;
   int64 day_flag_count = 5;
+}
+
+message GetUserStatsRequest {
+  Uuid user_id = 1;
+}
+
+message AdminUserStats {
+  Date today = 1;
+  Date overall_start = 2;
+  google.protobuf.Timestamp generated_at = 3;
+  DaySummary today_summary = 4;
+  MonthlyStats month_to_date = 5;
+  MonthlyStats overall = 6;
 }
 
 message KnownIpAddress {

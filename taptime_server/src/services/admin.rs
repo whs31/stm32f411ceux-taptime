@@ -5,10 +5,10 @@ use chrono::{TimeZone, Utc};
 use taptime_schema::{
   User,
   services::{
-    AdminLoginRequest, AdminLoginResponse, AdminUserDetail, AdminUserListItem, BanKind, BanRecord,
-    CreateBanRequest, DeleteUserRequest, GetUserDetailRequest, KnownIpAddress, ListBansRequest,
-    ListBansResponse, ListUsersRequest, ListUsersResponse, RevokeBanRequest,
-    admin_service_server::AdminService,
+    AdminLoginRequest, AdminLoginResponse, AdminUserDetail, AdminUserListItem, AdminUserStats,
+    BanKind, BanRecord, CreateBanRequest, DeleteUserRequest, GetUserDetailRequest,
+    GetUserStatsRequest, KnownIpAddress, ListBansRequest, ListBansResponse, ListUsersRequest,
+    ListUsersResponse, RevokeBanRequest, admin_service_server::AdminService,
   },
 };
 use tonic::{Request, Response, Status};
@@ -18,6 +18,7 @@ use super::{
   access::normalize_ip_cidr,
   auth::verify_password,
   db::{UserRow, fetch_core_user, row_to_core_user},
+  store::StoreServiceImpl,
 };
 
 #[derive(sqlx::FromRow)]
@@ -74,6 +75,7 @@ pub struct AdminServiceImpl {
   jwt_secret: String,
   admin_password_hash: Option<String>,
   token_ttl: chrono::Duration,
+  store: StoreServiceImpl,
 }
 
 impl AdminServiceImpl {
@@ -82,6 +84,7 @@ impl AdminServiceImpl {
     jwt_secret: String,
     admin_password_hash: Option<String>,
     token_ttl: chrono::Duration,
+    store: StoreServiceImpl,
   ) -> Self {
     let admin_password_hash = admin_password_hash
       .map(|hash| hash.trim().to_string())
@@ -91,6 +94,7 @@ impl AdminServiceImpl {
       jwt_secret,
       admin_password_hash,
       token_ttl,
+      store,
     }
   }
 
@@ -135,6 +139,17 @@ fn timestamp(value: chrono::DateTime<Utc>) -> prost_types::Timestamp {
     seconds: value.timestamp(),
     nanos: value.timestamp_subsec_nanos() as i32,
   }
+}
+
+fn stats_dates(
+  time_zone: chrono_tz::Tz,
+  configured_start: Option<chrono::NaiveDate>,
+  created_at: chrono::DateTime<Utc>,
+  generated_at: chrono::DateTime<Utc>,
+) -> (chrono::NaiveDate, chrono::NaiveDate) {
+  let today = generated_at.with_timezone(&time_zone).date_naive();
+  let created_date = created_at.with_timezone(&time_zone).date_naive();
+  (today, configured_start.unwrap_or(created_date))
 }
 
 fn datetime(
@@ -339,6 +354,39 @@ impl AdminService for AdminServiceImpl {
       bans,
       event_count,
       day_flag_count,
+    }))
+  }
+
+  async fn get_user_stats(
+    self: Arc<Self>,
+    request: Request<GetUserStatsRequest>,
+  ) -> Result<Response<AdminUserStats>, Status> {
+    self.require_admin(&request)?;
+    let user_id: Uuid = request
+      .into_inner()
+      .user_id
+      .ok_or_else(|| Status::invalid_argument("Missing user_id"))?
+      .into();
+    let user = fetch_core_user(&self.db, user_id).await?;
+    let generated_at = Utc::now();
+    let (today, overall_start) = stats_dates(
+      user.time_zone,
+      user.settings.start_date,
+      user.created_at,
+      generated_at,
+    );
+    let (today_summary, month_to_date, overall) = self
+      .store
+      .build_user_stats(user_id, overall_start, today)
+      .await?;
+
+    Ok(Response::new(AdminUserStats {
+      today: Some(today.into()),
+      overall_start: Some(overall_start.into()),
+      generated_at: Some(timestamp(generated_at)),
+      today_summary: Some(today_summary),
+      month_to_date: Some(month_to_date),
+      overall: Some(overall),
     }))
   }
 
@@ -557,11 +605,40 @@ impl AdminService for AdminServiceImpl {
 
 #[cfg(test)]
 mod tests {
+  use chrono::NaiveDate;
+
   use super::*;
 
   #[test]
   fn optional_expiry_rejects_past_timestamp() {
     let past = timestamp(Utc::now() - chrono::Duration::seconds(1));
     assert!(optional_expiry(Some(past)).is_err());
+  }
+
+  #[test]
+  fn stats_dates_use_user_timezone_and_configured_start() {
+    let generated_at = Utc.with_ymd_and_hms(2024, 1, 1, 21, 30, 0).unwrap();
+    let created_at = Utc.with_ymd_and_hms(2023, 12, 1, 22, 0, 0).unwrap();
+    let configured_start = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+
+    let (today, overall_start) = stats_dates(
+      chrono_tz::Europe::Moscow,
+      Some(configured_start),
+      created_at,
+      generated_at,
+    );
+
+    assert_eq!(today, NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
+    assert_eq!(overall_start, configured_start);
+  }
+
+  #[test]
+  fn stats_dates_fall_back_to_local_account_creation_date() {
+    let generated_at = Utc.with_ymd_and_hms(2024, 2, 1, 12, 0, 0).unwrap();
+    let created_at = Utc.with_ymd_and_hms(2024, 1, 1, 23, 30, 0).unwrap();
+
+    let (_, overall_start) = stats_dates(chrono_tz::Europe::Moscow, None, created_at, generated_at);
+
+    assert_eq!(overall_start, NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
   }
 }

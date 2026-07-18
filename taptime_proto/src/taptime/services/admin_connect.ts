@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { AdminLoginRequest, AdminLoginResponse, AdminUserDetail, BanRecord, CreateBanRequest, DeleteUserRequest, GetUserDetailRequest, ListBansRequest, ListBansResponse, ListUsersRequest, ListUsersResponse, RevokeBanRequest } from "./admin_pb.js";
+import { AdminLoginRequest, AdminLoginResponse, AdminUserDetail, AdminUserStats, BanRecord, CreateBanRequest, DeleteUserRequest, GetUserDetailRequest, GetUserStatsRequest, ListBansRequest, ListBansResponse, ListUsersRequest, ListUsersResponse, RevokeBanRequest } from "./admin_pb.js";
 import { Empty, MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -37,6 +37,15 @@ export const AdminService = {
       name: "GetUserDetail",
       I: GetUserDetailRequest,
       O: AdminUserDetail,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc com.whs31.taptime.services.AdminService.GetUserStats
+     */
+    getUserStats: {
+      name: "GetUserStats",
+      I: GetUserStatsRequest,
+      O: AdminUserStats,
       kind: MethodKind.Unary,
     },
     /**

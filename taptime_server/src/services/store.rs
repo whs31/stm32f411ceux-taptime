@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use chrono::{Duration, NaiveDate};
+use chrono::{Datelike, Duration, NaiveDate};
 use taptime_core::{Balance, Day, DayFlags, Event, LocalTime, User};
 use taptime_schema::{
   Date,
@@ -19,6 +19,7 @@ use super::{
 };
 use crate::interceptors::AuthenticatedUser;
 
+#[derive(Clone)]
 pub struct StoreServiceImpl {
   db: sqlx::PgPool,
   access_config: AccessConfig,
@@ -128,6 +129,7 @@ fn required_work_hours_for(flags: DayFlags, work_target: Duration) -> Duration {
   }
 }
 
+#[cfg(test)]
 fn apply_day_flags(day: &mut Day, flags: DayFlags, user: &User) {
   apply_day_configuration(day, flags, user, None);
 }
@@ -270,18 +272,7 @@ fn build_monthly_stats(
   month_end: NaiveDate,
   today: NaiveDate,
 ) -> MonthlyStats {
-  let mut monthly_stats = MonthlyStats {
-    total_clocked_work: Some(Duration::zero().into()),
-    overtime: Some(Duration::zero().into()),
-    undertime: Some(Duration::zero().into()),
-    worked_days: 0,
-    remote_days: 0,
-    day_offs: 0,
-    vacation_days: 0,
-    skipped_days: 0,
-    full_weekend_work_days: 0,
-    full_vacation_work_days: 0,
-  };
+  let mut monthly_stats = empty_monthly_stats();
   let mut total_clocked_work = Duration::zero();
   let mut overtime = Duration::zero();
   let mut undertime = Duration::zero();
@@ -296,7 +287,7 @@ fn build_monthly_stats(
     }
 
     let clocked_work = day.clocked_work_duration();
-    total_clocked_work = total_clocked_work + clocked_work;
+    total_clocked_work += clocked_work;
     if clocked_work > Duration::zero() || !day.events.is_empty() {
       monthly_stats.worked_days += 1;
     }
@@ -322,8 +313,8 @@ fn build_monthly_stats(
     }
     if is_calendar_regular_required_day(day) {
       match dashboard_balance(day, built_day.before_start_date, summary.skipped) {
-        Balance::Overtime(duration) => overtime = overtime + duration,
-        Balance::UnderTime(duration) => undertime = undertime + duration,
+        Balance::Overtime(duration) => overtime += duration,
+        Balance::UnderTime(duration) => undertime += duration,
         Balance::Exact => {}
       }
     }
@@ -333,6 +324,38 @@ fn build_monthly_stats(
   monthly_stats.overtime = Some(overtime.into());
   monthly_stats.undertime = Some(undertime.into());
   monthly_stats
+}
+
+fn empty_monthly_stats() -> MonthlyStats {
+  MonthlyStats {
+    total_clocked_work: Some(Duration::zero().into()),
+    overtime: Some(Duration::zero().into()),
+    undertime: Some(Duration::zero().into()),
+    worked_days: 0,
+    remote_days: 0,
+    day_offs: 0,
+    vacation_days: 0,
+    skipped_days: 0,
+    full_weekend_work_days: 0,
+    full_vacation_work_days: 0,
+  }
+}
+
+fn user_stats_from_days(
+  days: &[BuiltDay],
+  overall_start: NaiveDate,
+  today: NaiveDate,
+) -> Result<(DaySummary, MonthlyStats, MonthlyStats), Status> {
+  let today_summary = days
+    .iter()
+    .find(|built_day| built_day.day.date == today)
+    .map(|built_day| summarize_day(built_day, today))
+    .ok_or_else(|| Status::internal("Failed to build today's summary"))?;
+  let month_start = NaiveDate::from_ymd_opt(today.year(), today.month(), 1)
+    .ok_or_else(|| Status::internal("Failed to determine month start"))?;
+  let month_to_date = build_monthly_stats(days, month_start, today, today);
+  let overall = build_monthly_stats(days, overall_start, today, today);
+  Ok((today_summary, month_to_date, overall))
 }
 
 impl StoreServiceImpl {
@@ -456,6 +479,17 @@ impl StoreServiceImpl {
       days: summaries,
       month_stats: Some(monthly_stats),
     })
+  }
+
+  pub(super) async fn build_user_stats(
+    &self,
+    user_id: Uuid,
+    overall_start: NaiveDate,
+    today: NaiveDate,
+  ) -> Result<(DaySummary, MonthlyStats, MonthlyStats), Status> {
+    let query_start = overall_start.min(today);
+    let days = self.build_days(user_id, query_start, today).await?;
+    user_stats_from_days(&days, overall_start, today)
   }
 }
 
@@ -934,5 +968,88 @@ mod tests {
     assert_eq!(stats.full_weekend_work_days, 1);
     assert_eq!(stats.full_vacation_work_days, 1);
     assert_eq!(duration_seconds(&stats.undertime), 0);
+  }
+
+  #[test]
+  fn user_stats_separate_month_to_date_from_overall() {
+    let user = make_user();
+    let january = user.new_day(date(2024, 1, 31));
+    let mut february = user.new_day(date(2024, 2, 1));
+    february.add_event(Event::CheckIn(lt(9, 0))).unwrap();
+    february.add_event(Event::CheckOut(lt(17, 30))).unwrap();
+    let days = [built_day(january, &user), built_day(february, &user)];
+
+    let (_, month, overall) =
+      user_stats_from_days(&days, date(2024, 1, 31), date(2024, 2, 1)).unwrap();
+
+    assert_eq!(month.worked_days, 1);
+    assert_eq!(month.skipped_days, 0);
+    assert_eq!(duration_seconds(&month.undertime), 0);
+    assert_eq!(overall.worked_days, 1);
+    assert_eq!(overall.skipped_days, 1);
+    assert_eq!(duration_seconds(&overall.undertime), 8 * 60 * 60);
+  }
+
+  #[test]
+  fn user_stats_return_zero_overall_for_future_start_date() {
+    let user = make_user();
+    let today = date(2024, 2, 1);
+    let days = [built_day(user.new_day(today), &user)];
+
+    let (_, _, overall) = user_stats_from_days(&days, date(2024, 2, 2), today).unwrap();
+
+    assert_eq!(overall.worked_days, 0);
+    assert_eq!(overall.skipped_days, 0);
+    assert_eq!(duration_seconds(&overall.total_clocked_work), 0);
+    assert_eq!(duration_seconds(&overall.overtime), 0);
+    assert_eq!(duration_seconds(&overall.undertime), 0);
+  }
+
+  #[test]
+  fn user_stats_respect_work_override_and_nonworking_flags() {
+    let user = make_user();
+    let mut overridden = user.new_day(date(2024, 2, 1));
+    let work_target = apply_day_configuration(
+      &mut overridden,
+      DayFlags::empty(),
+      &user,
+      Some(Duration::hours(7)),
+    );
+    overridden.add_event(Event::CheckIn(lt(9, 0))).unwrap();
+    overridden.add_event(Event::CheckOut(lt(16, 30))).unwrap();
+    let mut remote = user.new_day(date(2024, 2, 2));
+    apply_day_flags(&mut remote, DayFlags::REMOTE, &user);
+    let days = [
+      BuiltDay {
+        day: overridden,
+        event_ids: vec![],
+        before_start_date: false,
+        work_target,
+        required_work_hours_overridden: true,
+      },
+      built_day(remote, &user),
+    ];
+
+    let (today, month, _) =
+      user_stats_from_days(&days, date(2024, 2, 1), date(2024, 2, 2)).unwrap();
+
+    assert!(today.day.unwrap().flags & DayFlags::REMOTE.bits() != 0);
+    assert_eq!(month.remote_days, 1);
+    assert_eq!(duration_seconds(&month.overtime), 0);
+    assert_eq!(duration_seconds(&month.undertime), 0);
+  }
+
+  #[test]
+  fn user_stats_return_today_and_zero_activity_counters_for_empty_data() {
+    let user = make_user();
+    let today = date(2024, 2, 1);
+    let days = [built_day(user.new_day(today), &user)];
+
+    let (summary, month, overall) = user_stats_from_days(&days, today, today).unwrap();
+
+    assert!(summary.day.unwrap().events.is_empty());
+    assert_eq!(month.worked_days, 0);
+    assert_eq!(overall.worked_days, 0);
+    assert_eq!(duration_seconds(&month.total_clocked_work), 0);
   }
 }
