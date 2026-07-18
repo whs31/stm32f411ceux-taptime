@@ -11,9 +11,12 @@ chrono = "0.4"
 chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "color", "env"] }
 crossterm = "0.28"
+keyring = "4.1.5"
 prost-types = { version = "0.14", features = ["chrono"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 ratatui = "0.29"
 tokio = { version = "1", features = ["full"] }
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring"] }
-uuid = "1"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+zeroize = "1"

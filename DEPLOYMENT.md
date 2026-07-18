@@ -134,3 +134,54 @@ Run the admin TUI:
 ```sh
 docker compose --env-file .env.production --profile admin run --rm admin_cli
 ```
+
+## 5. Admin Password Storage
+
+Native `taptime_admin_cli` installations can store an admin password in the
+operating system credential vault. Each normalized `--admin-api-url` has a
+separate credential. The CLI asks before saving a password and only offers to
+save it after a successful login.
+
+- Linux uses the Freedesktop Secret Service. A Hyprland session therefore needs
+  a running provider such as GNOME Keyring, KWallet, or KeePassXC that owns
+  `org.freedesktop.secrets` on the user session bus.
+- Windows uses Windows Credential Manager.
+- HTTPS endpoints are eligible for storage. Plain HTTP is eligible only for
+  `localhost`, IPv4 loopback addresses, and `::1`.
+- If the vault is locked or unavailable, the CLI warns and continues with a
+  one-time password. It never writes a plaintext fallback.
+
+Bypass the vault for one launch:
+
+```sh
+cargo run --manifest-path taptime_admin_cli/Cargo.toml -- \
+  --admin-api-url=https://api.example.com --no-password-cache
+```
+
+Remove the password for one endpoint:
+
+```sh
+cargo run --manifest-path taptime_admin_cli/Cargo.toml -- \
+  forget-password --admin-api-url=https://api.example.com
+```
+
+Endpoint URLs are lookup metadata and can be visible to the credential-store
+provider; passwords remain in the protected secret payload. URLs containing
+embedded credentials, query strings, or fragments are rejected.
+
+The Docker admin profile intentionally remains prompt-per-run. Its
+`http://server:50051` endpoint is not loopback, and the container is not given
+access to the host's Secret Service session bus or Windows credential vault.
+
+To smoke-test a platform's native vault integration, run the ignored disposable
+round-trip test. It creates a uniquely named credential and removes it before
+finishing:
+
+```sh
+cargo test --manifest-path taptime_admin_cli/Cargo.toml \
+  native_credential_store_round_trip -- --ignored
+```
+
+On Windows, additionally save a password from the CLI, relaunch against the
+same URL to confirm a prompt-free login, then run `forget-password` and confirm
+that the next launch prompts again.

@@ -85,8 +85,9 @@
     --chart-3: oklch(0.596 0.145 163.225);
     --chart-4: oklch(0.508 0.118 165.612);
     --chart-5: oklch(0.432 0.095 166.913);
+    --activity-overtime: oklch(0.70 0.20 145);
     --activity-remote: oklch(0.66 0.19 250);
-    --activity-weekend-work: oklch(0.63 0.22 305);
+    --activity-weekend-work: oklch(0.69 0.17 42);
     --radius: 0.625rem;
     --sidebar: oklch(0.986 0.002 67.8);
     --sidebar-foreground: oklch(0.147 0.004 49.3);
@@ -122,8 +123,9 @@
     --chart-3: oklch(0.596 0.145 163.225);
     --chart-4: oklch(0.508 0.118 165.612);
     --chart-5: oklch(0.432 0.095 166.913);
+    --activity-overtime: oklch(0.78 0.18 145);
     --activity-remote: oklch(0.74 0.17 250);
-    --activity-weekend-work: oklch(0.72 0.18 305);
+    --activity-weekend-work: oklch(0.76 0.15 42);
     --sidebar: oklch(0.214 0.009 43.1);
     --sidebar-foreground: oklch(0.986 0.002 67.8);
     --sidebar-primary: oklch(0.795 0.184 86.047);

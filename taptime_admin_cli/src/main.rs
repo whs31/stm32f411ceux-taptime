@@ -1,12 +1,15 @@
 use std::{
     error::Error,
-    io,
+    fmt, io,
     time::{Duration, Instant},
 };
+
+mod credentials;
 
 use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 use chrono::{NaiveDate, TimeZone, Timelike, Utc};
 use clap::{Parser, Subcommand};
+use credentials::{CredentialEndpoint, CredentialError, CredentialStore, SystemCredentialStore};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
     execute,
@@ -33,6 +36,7 @@ use taptime_schema::{
 };
 use tonic::{Request, metadata::MetadataValue, transport::Channel};
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 type AppResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -40,8 +44,17 @@ type AppResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 #[command(name = "taptime_admin_cli")]
 #[command(version, about = "TapTime administration TUI")]
 struct Args {
-    #[arg(long, env = "ADMIN_API_URL", default_value = "http://127.0.0.1:50051")]
+    #[arg(
+        long,
+        env = "ADMIN_API_URL",
+        default_value = "http://127.0.0.1:50051",
+        global = true
+    )]
     admin_api_url: String,
+
+    /// Do not read or write the operating system credential store.
+    #[arg(long, global = true)]
+    no_password_cache: bool,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -53,6 +66,8 @@ enum Command {
         #[arg(long)]
         password: Option<String>,
     },
+    /// Remove the saved password for the selected admin API URL.
+    ForgetPassword,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -410,11 +425,14 @@ struct AdminClient {
 }
 
 impl AdminClient {
-    async fn connect(endpoint: String, password: String) -> AppResult<Self> {
-        let mut inner = AdminServiceClient::connect(endpoint).await?;
+    async fn connect(endpoint: String, password: String) -> Result<Self, AdminConnectError> {
+        let mut inner = AdminServiceClient::connect(endpoint)
+            .await
+            .map_err(AdminConnectError::Transport)?;
         let response = inner
             .admin_login(AdminLoginRequest { password })
-            .await?
+            .await
+            .map_err(AdminConnectError::Login)?
             .into_inner();
         Ok(Self {
             inner,
@@ -535,21 +553,230 @@ impl AdminClient {
     }
 }
 
+#[derive(Debug)]
+enum AdminConnectError {
+    Transport(tonic::transport::Error),
+    Login(tonic::Status),
+}
+
+impl fmt::Display for AdminConnectError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transport(error) => write!(formatter, "Admin API connection failed: {error}"),
+            Self::Login(error) => write!(formatter, "Admin login failed: {error}"),
+        }
+    }
+}
+
+impl Error for AdminConnectError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Transport(error) => Some(error),
+            Self::Login(error) => Some(error),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum AuthenticationError {
+    Rejected,
+    Other(Box<dyn Error + Send + Sync>),
+}
+
+impl fmt::Display for AuthenticationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Rejected => formatter.write_str("Invalid admin password"),
+            Self::Other(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl Error for AuthenticationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Rejected => None,
+            Self::Other(error) => Some(error.as_ref()),
+        }
+    }
+}
+
+#[allow(async_fn_in_trait)]
+trait Authenticator {
+    type Client;
+
+    async fn authenticate(
+        &mut self,
+        endpoint: &str,
+        password: String,
+    ) -> Result<Self::Client, AuthenticationError>;
+}
+
+struct NetworkAuthenticator;
+
+impl Authenticator for NetworkAuthenticator {
+    type Client = AdminClient;
+
+    async fn authenticate(
+        &mut self,
+        endpoint: &str,
+        password: String,
+    ) -> Result<Self::Client, AuthenticationError> {
+        match AdminClient::connect(endpoint.to_string(), password).await {
+            Ok(client) => Ok(client),
+            Err(AdminConnectError::Login(status))
+                if status.code() == tonic::Code::Unauthenticated =>
+            {
+                Err(AuthenticationError::Rejected)
+            }
+            Err(error) => Err(AuthenticationError::Other(Box::new(error))),
+        }
+    }
+}
+
+trait LoginPrompter {
+    fn password(&mut self) -> AppResult<Zeroizing<String>>;
+    fn confirm_save(&mut self, endpoint: &str) -> AppResult<bool>;
+    fn notice(&mut self, message: &str);
+    fn warning(&mut self, message: &str);
+}
+
+struct TerminalPrompter;
+
+impl LoginPrompter for TerminalPrompter {
+    fn password(&mut self) -> AppResult<Zeroizing<String>> {
+        Ok(Zeroizing::new(read_password("Admin password: ")?))
+    }
+
+    fn confirm_save(&mut self, endpoint: &str) -> AppResult<bool> {
+        read_confirmation(&format!("Save password securely for {endpoint}? [y/N] "))
+    }
+
+    fn notice(&mut self, message: &str) {
+        eprintln!("{message}");
+    }
+
+    fn warning(&mut self, message: &str) {
+        eprintln!("Warning: {message}");
+    }
+}
+
+async fn login_with_credentials<A, S, P>(
+    endpoint: &CredentialEndpoint,
+    cache_disabled: bool,
+    authenticator: &mut A,
+    store: &mut S,
+    prompter: &mut P,
+) -> AppResult<A::Client>
+where
+    A: Authenticator,
+    S: CredentialStore,
+    P: LoginPrompter,
+{
+    let cache_enabled = !cache_disabled && endpoint.cache_allowed();
+    if !cache_disabled && !endpoint.cache_allowed() {
+        prompter.warning(
+            "password caching is disabled for remote plaintext HTTP; use HTTPS to enable it",
+        );
+    }
+
+    let mut vault_available = cache_enabled;
+    if cache_enabled {
+        match store.get_password(endpoint.account()) {
+            Ok(password) => {
+                let password = Zeroizing::new(password);
+                match authenticator
+                    .authenticate(endpoint.endpoint(), password.to_string())
+                    .await
+                {
+                    Ok(client) => return Ok(client),
+                    Err(AuthenticationError::Rejected) => {
+                        if let Err(error) = store.delete_password(endpoint.account())
+                            && error != CredentialError::NotFound
+                        {
+                            prompter.warning(&format!(
+                                "could not remove the rejected cached password: {error}"
+                            ));
+                        }
+                        prompter
+                            .notice("The cached admin password was rejected and has been removed.");
+                    }
+                    Err(AuthenticationError::Other(error)) => return Err(error),
+                }
+            }
+            Err(CredentialError::NotFound) => {}
+            Err(CredentialError::Unavailable(error)) => {
+                vault_available = false;
+                prompter.warning(&format!(
+                    "the operating system credential store is unavailable ({error}); continuing without caching"
+                ));
+            }
+        }
+    }
+
+    let password = prompter.password()?;
+    let client = match authenticator
+        .authenticate(endpoint.endpoint(), password.to_string())
+        .await
+    {
+        Ok(client) => client,
+        Err(AuthenticationError::Rejected) => return Err("Invalid admin password".into()),
+        Err(AuthenticationError::Other(error)) => return Err(error),
+    };
+
+    if vault_available && prompter.confirm_save(endpoint.endpoint())? {
+        if let Err(error) = store.set_password(endpoint.account(), password.as_str()) {
+            prompter.warning(&format!(
+                "could not save the admin password securely: {error}"
+            ));
+        } else {
+            prompter.notice("Admin password saved in the operating system credential store.");
+        }
+    }
+
+    Ok(client)
+}
+
+fn forget_password(
+    endpoint: &CredentialEndpoint,
+    store: &mut impl CredentialStore,
+) -> AppResult<()> {
+    match store.delete_password(endpoint.account()) {
+        Ok(()) => println!("Removed the cached password for {}.", endpoint.endpoint()),
+        Err(CredentialError::NotFound) => {
+            println!("No cached password exists for {}.", endpoint.endpoint());
+        }
+        Err(error) => return Err(format!("Could not access the credential store: {error}").into()),
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> AppResult<()> {
     let args = Args::parse();
     match args.command {
         Some(Command::HashPassword { password }) => {
-            let password = match password {
+            let password = Zeroizing::new(match password {
                 Some(password) => password,
                 None => read_password("Admin password: ")?,
-            };
+            });
             println!("{}", hash_password(&password)?);
             Ok(())
         }
+        Some(Command::ForgetPassword) => {
+            let endpoint = CredentialEndpoint::parse(&args.admin_api_url)?;
+            forget_password(&endpoint, &mut SystemCredentialStore)
+        }
         None => {
-            let password = read_password("Admin password: ")?;
-            let client = AdminClient::connect(args.admin_api_url, password).await?;
+            let endpoint = CredentialEndpoint::parse(&args.admin_api_url)?;
+            let client = login_with_credentials(
+                &endpoint,
+                args.no_password_cache,
+                &mut NetworkAuthenticator,
+                &mut SystemCredentialStore,
+                &mut TerminalPrompter,
+            )
+            .await?;
             run_tui(client).await
         }
     }
@@ -1203,11 +1430,26 @@ fn hash_password(password: &str) -> AppResult<String> {
         .to_string())
 }
 
+struct RawModeGuard;
+
+impl RawModeGuard {
+    fn enable() -> io::Result<Self> {
+        enable_raw_mode()?;
+        Ok(Self)
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+    }
+}
+
 fn read_password(prompt: &str) -> AppResult<String> {
     print!("{prompt}");
     use std::io::Write;
     io::stdout().flush()?;
-    enable_raw_mode()?;
+    let raw_mode = RawModeGuard::enable()?;
     let mut password = String::new();
     loop {
         if let Event::Key(key) = event::read()? {
@@ -1218,21 +1460,144 @@ fn read_password(prompt: &str) -> AppResult<String> {
                 }
                 KeyCode::Char(ch) => password.push(ch),
                 KeyCode::Esc => {
-                    disable_raw_mode()?;
                     return Err("Cancelled".into());
                 }
                 _ => {}
             }
         }
     }
-    disable_raw_mode()?;
+    drop(raw_mode);
     println!();
     Ok(password)
+}
+
+fn read_confirmation(prompt: &str) -> AppResult<bool> {
+    print!("{prompt}");
+    use std::io::Write;
+    io::stdout().flush()?;
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    Ok(matches!(
+        answer.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+
+    #[derive(Default)]
+    struct FakeStore {
+        password: Option<String>,
+        get_error: Option<CredentialError>,
+        set_error: Option<CredentialError>,
+        delete_error: Option<CredentialError>,
+        get_calls: usize,
+        set_calls: usize,
+        delete_calls: usize,
+    }
+
+    impl CredentialStore for FakeStore {
+        fn get_password(&mut self, _account: &str) -> Result<String, CredentialError> {
+            self.get_calls += 1;
+            if let Some(error) = self.get_error.take() {
+                return Err(error);
+            }
+            self.password.clone().ok_or(CredentialError::NotFound)
+        }
+
+        fn set_password(&mut self, _account: &str, password: &str) -> Result<(), CredentialError> {
+            self.set_calls += 1;
+            if let Some(error) = self.set_error.take() {
+                return Err(error);
+            }
+            self.password = Some(password.to_string());
+            Ok(())
+        }
+
+        fn delete_password(&mut self, _account: &str) -> Result<(), CredentialError> {
+            self.delete_calls += 1;
+            if let Some(error) = self.delete_error.take() {
+                return Err(error);
+            }
+            if self.password.take().is_some() {
+                Ok(())
+            } else {
+                Err(CredentialError::NotFound)
+            }
+        }
+    }
+
+    enum AuthenticationOutcome {
+        Success,
+        Rejected,
+        Failed,
+    }
+
+    struct FakeAuthenticator {
+        outcomes: VecDeque<AuthenticationOutcome>,
+        attempts: Vec<(String, String)>,
+    }
+
+    impl FakeAuthenticator {
+        fn new(outcomes: impl IntoIterator<Item = AuthenticationOutcome>) -> Self {
+            Self {
+                outcomes: outcomes.into_iter().collect(),
+                attempts: Vec::new(),
+            }
+        }
+    }
+
+    impl Authenticator for FakeAuthenticator {
+        type Client = ();
+
+        async fn authenticate(
+            &mut self,
+            endpoint: &str,
+            password: String,
+        ) -> Result<Self::Client, AuthenticationError> {
+            self.attempts.push((endpoint.to_string(), password));
+            match self.outcomes.pop_front().unwrap() {
+                AuthenticationOutcome::Success => Ok(()),
+                AuthenticationOutcome::Rejected => Err(AuthenticationError::Rejected),
+                AuthenticationOutcome::Failed => Err(AuthenticationError::Other(Box::new(
+                    io::Error::other("server unavailable"),
+                ))),
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct FakePrompter {
+        passwords: VecDeque<String>,
+        save_answers: VecDeque<bool>,
+        notices: Vec<String>,
+        warnings: Vec<String>,
+    }
+
+    impl LoginPrompter for FakePrompter {
+        fn password(&mut self) -> AppResult<Zeroizing<String>> {
+            Ok(Zeroizing::new(self.passwords.pop_front().unwrap()))
+        }
+
+        fn confirm_save(&mut self, _endpoint: &str) -> AppResult<bool> {
+            Ok(self.save_answers.pop_front().unwrap())
+        }
+
+        fn notice(&mut self, message: &str) {
+            self.notices.push(message.to_string());
+        }
+
+        fn warning(&mut self, message: &str) {
+            self.warnings.push(message.to_string());
+        }
+    }
+
+    fn credential_endpoint(value: &str) -> CredentialEndpoint {
+        CredentialEndpoint::parse(value).unwrap()
+    }
 
     fn duration(seconds: i64) -> prost_types::Duration {
         prost_types::Duration { seconds, nanos: 0 }
@@ -1385,5 +1750,280 @@ mod tests {
         assert_eq!(fmt_signed_duration(3_900), "+1h 05m");
         assert_eq!(fmt_signed_duration(-3_900), "-1h 05m");
         assert_eq!(fmt_signed_duration(0), "0h 00m");
+    }
+
+    #[tokio::test]
+    async fn prompted_password_is_saved_only_after_confirmation() {
+        let endpoint = credential_endpoint("https://example.com");
+        let mut store = FakeStore::default();
+        let mut authenticator = FakeAuthenticator::new([AuthenticationOutcome::Success]);
+        let mut prompter = FakePrompter {
+            passwords: VecDeque::from(["new-secret".to_string()]),
+            save_answers: VecDeque::from([true]),
+            ..Default::default()
+        };
+
+        login_with_credentials(
+            &endpoint,
+            false,
+            &mut authenticator,
+            &mut store,
+            &mut prompter,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(store.get_calls, 1);
+        assert_eq!(store.set_calls, 1);
+        assert_eq!(store.password.as_deref(), Some("new-secret"));
+        assert_eq!(prompter.notices.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn declined_save_does_not_write_the_vault() {
+        let endpoint = credential_endpoint("https://example.com");
+        let mut store = FakeStore::default();
+        let mut authenticator = FakeAuthenticator::new([AuthenticationOutcome::Success]);
+        let mut prompter = FakePrompter {
+            passwords: VecDeque::from(["one-time".to_string()]),
+            save_answers: VecDeque::from([false]),
+            ..Default::default()
+        };
+
+        login_with_credentials(
+            &endpoint,
+            false,
+            &mut authenticator,
+            &mut store,
+            &mut prompter,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(store.set_calls, 0);
+        assert!(store.password.is_none());
+    }
+
+    #[tokio::test]
+    async fn cache_bypass_never_accesses_the_vault() {
+        let endpoint = credential_endpoint("https://example.com");
+        let mut store = FakeStore {
+            password: Some("cached".to_string()),
+            ..Default::default()
+        };
+        let mut authenticator = FakeAuthenticator::new([AuthenticationOutcome::Success]);
+        let mut prompter = FakePrompter {
+            passwords: VecDeque::from(["one-time".to_string()]),
+            ..Default::default()
+        };
+
+        login_with_credentials(
+            &endpoint,
+            true,
+            &mut authenticator,
+            &mut store,
+            &mut prompter,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(store.get_calls, 0);
+        assert_eq!(store.set_calls, 0);
+        assert_eq!(authenticator.attempts[0].1, "one-time");
+    }
+
+    #[tokio::test]
+    async fn unavailable_vault_warns_and_uses_one_time_password() {
+        let endpoint = credential_endpoint("https://example.com");
+        let mut store = FakeStore {
+            get_error: Some(CredentialError::Unavailable("vault locked".to_string())),
+            ..Default::default()
+        };
+        let mut authenticator = FakeAuthenticator::new([AuthenticationOutcome::Success]);
+        let mut prompter = FakePrompter {
+            passwords: VecDeque::from(["one-time".to_string()]),
+            ..Default::default()
+        };
+
+        login_with_credentials(
+            &endpoint,
+            false,
+            &mut authenticator,
+            &mut store,
+            &mut prompter,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(store.set_calls, 0);
+        assert!(prompter.warnings[0].contains("vault locked"));
+    }
+
+    #[tokio::test]
+    async fn remote_http_warns_and_never_accesses_the_vault() {
+        let endpoint = credential_endpoint("http://server:50051");
+        let mut store = FakeStore {
+            password: Some("cached".to_string()),
+            ..Default::default()
+        };
+        let mut authenticator = FakeAuthenticator::new([AuthenticationOutcome::Success]);
+        let mut prompter = FakePrompter {
+            passwords: VecDeque::from(["one-time".to_string()]),
+            ..Default::default()
+        };
+
+        login_with_credentials(
+            &endpoint,
+            false,
+            &mut authenticator,
+            &mut store,
+            &mut prompter,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(store.get_calls, 0);
+        assert_eq!(store.set_calls, 0);
+        assert!(prompter.warnings[0].contains("remote plaintext HTTP"));
+    }
+
+    #[tokio::test]
+    async fn save_failure_warns_but_keeps_successful_login() {
+        let endpoint = credential_endpoint("https://example.com");
+        let mut store = FakeStore {
+            set_error: Some(CredentialError::Unavailable("vault locked".to_string())),
+            ..Default::default()
+        };
+        let mut authenticator = FakeAuthenticator::new([AuthenticationOutcome::Success]);
+        let mut prompter = FakePrompter {
+            passwords: VecDeque::from(["new-secret".to_string()]),
+            save_answers: VecDeque::from([true]),
+            ..Default::default()
+        };
+
+        login_with_credentials(
+            &endpoint,
+            false,
+            &mut authenticator,
+            &mut store,
+            &mut prompter,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(store.set_calls, 1);
+        assert!(prompter.warnings[0].contains("vault locked"));
+    }
+
+    #[tokio::test]
+    async fn rejected_cached_password_is_deleted_and_replaced() {
+        let endpoint = credential_endpoint("https://example.com");
+        let mut store = FakeStore {
+            password: Some("stale-secret".to_string()),
+            ..Default::default()
+        };
+        let mut authenticator = FakeAuthenticator::new([
+            AuthenticationOutcome::Rejected,
+            AuthenticationOutcome::Success,
+        ]);
+        let mut prompter = FakePrompter {
+            passwords: VecDeque::from(["fresh-secret".to_string()]),
+            save_answers: VecDeque::from([true]),
+            ..Default::default()
+        };
+
+        login_with_credentials(
+            &endpoint,
+            false,
+            &mut authenticator,
+            &mut store,
+            &mut prompter,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(store.delete_calls, 1);
+        assert_eq!(store.set_calls, 1);
+        assert_eq!(store.password.as_deref(), Some("fresh-secret"));
+        assert_eq!(authenticator.attempts[0].1, "stale-secret");
+        assert_eq!(authenticator.attempts[1].1, "fresh-secret");
+        assert!(prompter.notices[0].contains("rejected"));
+    }
+
+    #[tokio::test]
+    async fn transport_failure_preserves_cached_password_and_hides_it_from_errors() {
+        let endpoint = credential_endpoint("https://example.com");
+        let mut store = FakeStore {
+            password: Some("do-not-print-this".to_string()),
+            ..Default::default()
+        };
+        let mut authenticator = FakeAuthenticator::new([AuthenticationOutcome::Failed]);
+        let mut prompter = FakePrompter::default();
+
+        let error = login_with_credentials(
+            &endpoint,
+            false,
+            &mut authenticator,
+            &mut store,
+            &mut prompter,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(store.delete_calls, 0);
+        assert_eq!(store.password.as_deref(), Some("do-not-print-this"));
+        assert!(!error.to_string().contains("do-not-print-this"));
+    }
+
+    #[tokio::test]
+    async fn rejected_prompted_password_is_not_saved_or_printed() {
+        let endpoint = credential_endpoint("https://example.com");
+        let mut store = FakeStore::default();
+        let mut authenticator = FakeAuthenticator::new([AuthenticationOutcome::Rejected]);
+        let mut prompter = FakePrompter {
+            passwords: VecDeque::from(["do-not-print-this".to_string()]),
+            ..Default::default()
+        };
+
+        let error = login_with_credentials(
+            &endpoint,
+            false,
+            &mut authenticator,
+            &mut store,
+            &mut prompter,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(store.set_calls, 0);
+        assert!(!error.to_string().contains("do-not-print-this"));
+    }
+
+    #[test]
+    fn forget_password_is_idempotent() {
+        let endpoint = credential_endpoint("https://example.com");
+        let mut store = FakeStore::default();
+        forget_password(&endpoint, &mut store).unwrap();
+        assert_eq!(store.delete_calls, 1);
+    }
+
+    #[test]
+    fn cli_accepts_cache_controls() {
+        let args = Args::try_parse_from([
+            "taptime_admin_cli",
+            "--admin-api-url=https://example.com",
+            "--no-password-cache",
+        ])
+        .unwrap();
+        assert!(args.no_password_cache);
+        assert_eq!(args.admin_api_url, "https://example.com");
+
+        let args = Args::try_parse_from([
+            "taptime_admin_cli",
+            "forget-password",
+            "--admin-api-url=https://example.com",
+        ])
+        .unwrap();
+        assert!(matches!(args.command, Some(Command::ForgetPassword)));
     }
 }

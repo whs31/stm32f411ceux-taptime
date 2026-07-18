@@ -584,8 +584,9 @@
       return activityCell(themeMix("--destructive", 42 + amount * 38));
     }
 
-    const amount = Math.min(1, delta / required);
-    return activityCell(themeMix("--chart-1", 42 + amount * 44));
+    const ratio = Math.min(1, delta / required);
+    const intensity = 48 + Math.sqrt(Math.sqrt(ratio)) * 42;
+    return activityCell(themeMix("--activity-overtime", intensity));
   }
 
   function calendarDots(summary: DaySummary | null) {
